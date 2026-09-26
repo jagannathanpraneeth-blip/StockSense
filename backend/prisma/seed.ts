@@ -1,3 +1,5 @@
+import '../src/config/env';
+if (process.env.NODE_ENV === 'production') throw new Error('Development seed is disabled in production');
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 

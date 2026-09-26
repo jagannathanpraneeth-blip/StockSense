@@ -16,7 +16,12 @@
     "prisma:migrate": "npm --prefix backend run prisma:migrate",
     "prisma:studio": "npm --prefix backend run prisma:studio",
     "seed": "npm --prefix backend run seed",
-    "db:setup": "npm --prefix backend run db:setup"
+    "db:setup": "npm --prefix backend run db:setup",
+    "start": "npm --prefix backend start",
+    "db:upgrade": "npm --prefix backend run db:upgrade",
+    "create:manager": "npm --prefix backend run create:manager",
+    "test:review": "npm --prefix backend run test:review",
+    "verify": "npm run build && npm run test:review"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireRole } from '../middleware/auth';
 import {
+  cancelReceipt,
   listReceipts,
   getReceipt,
   createReceipt,
@@ -17,6 +18,7 @@ const router = Router();
 router.get('/', listReceipts);
 router.post('/', createReceipt);
 router.get('/:id', getReceipt);
+router.post('/:id/cancel', cancelReceipt);
 router.put('/:id', updateReceipt);
 router.post('/:id/set-all-done', setAllDone);
 

@@ -41,12 +41,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { user, logout } = useAuth();
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, stage: 'Stage 3' },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, stage: 'Active' },
     { id: 'products', label: 'Products & Stock', icon: Boxes, isWorking: true },
     { id: 'receipts', label: 'Incoming Receipts', icon: ArrowDownToLine, isWorking: true },
-    { id: 'deliveries', label: 'Delivery Orders', icon: ArrowUpFromLine, stage: 'Stage 3' },
-    { id: 'transfers', label: 'Internal Transfers', icon: ArrowLeftRight, stage: 'Stage 3' },
-    { id: 'adjustments', label: 'Adjustments', icon: SlidersHorizontal, stage: 'Stage 3' },
+    { id: 'deliveries', label: 'Delivery Orders', icon: ArrowUpFromLine, stage: 'Active' },
+    { id: 'transfers', label: 'Internal Transfers', icon: ArrowLeftRight, stage: 'Active' },
+    { id: 'adjustments', label: 'Adjustments', icon: SlidersHorizontal, stage: 'Active' },
     { id: 'history', label: 'Move History', icon: History, isWorking: true },
     { id: 'settings', label: 'Warehouse Settings', icon: Settings, isWorking: true },
   ];
@@ -91,13 +91,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-base tracking-tight text-slate-900">StockSense</span>
                 <span className="px-1.5 py-0.2 text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 rounded border border-purple-200">
-                  Stage 2
+                  Inventory
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 font-medium">Modular IMS • Odoo</p>
             </div>
           </div>
           <button
+            aria-label="Close sidebar"
             onClick={onCloseMobile}
             className="lg:hidden p-1.5 text-slate-400 hover:text-slate-600 rounded-lg"
           >
@@ -117,6 +118,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <button
                 key={item.id}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => handleNavClick(item.id as ActivePage)}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   isActive
@@ -132,13 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   />
                   <span>{item.label}</span>
                 </div>
-                {item.isWorking ? (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Active" />
-                ) : (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-400">
-                    {item.stage}
-                  </span>
-                )}
+
               </button>
             );
           })}

@@ -5,7 +5,6 @@ import {
   Mail,
   User as UserIcon,
   ArrowRight,
-  Sparkles,
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
@@ -24,40 +23,6 @@ export const AuthPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showForgotModal, setShowForgotModal] = useState(false);
-
-  const demoAccounts = [
-    {
-      role: 'Manager',
-      name: 'Alex Morgan',
-      email: 'manager@stocksense.local',
-      pass: 'Manager123!',
-      color: 'border-purple-200 bg-purple-50/70 hover:bg-purple-100/70 text-purple-950',
-      badge: 'bg-purple-600 text-white',
-    },
-    {
-      role: 'Admin',
-      name: 'System Admin',
-      email: 'admin@stocksense.local',
-      pass: 'Admin123!',
-      color: 'border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100/70 text-indigo-950',
-      badge: 'bg-indigo-600 text-white',
-    },
-    {
-      role: 'Staff',
-      name: 'Jordan Lee',
-      email: 'staff@stocksense.local',
-      pass: 'Staff123!',
-      color: 'border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100/70 text-emerald-950',
-      badge: 'bg-emerald-600 text-white',
-    },
-  ];
-
-  const fillDemoAccount = (acc: typeof demoAccounts[0]) => {
-    setMode('login');
-    setEmail(acc.email);
-    setPassword(acc.pass);
-    setError(null);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,7 +66,7 @@ export const AuthPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <span className="font-black text-2xl tracking-tight text-white">StockSense</span>
                 <span className="px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 rounded border border-purple-500/40">
-                  Stage 2
+                  Inventory Workspace
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-medium">Modular Inventory Management System • Odoo</p>
@@ -113,44 +78,11 @@ export const AuthPage: React.FC = () => {
               Precision Real-Time Inventory Control
             </h1>
             <p className="text-sm text-slate-400 leading-relaxed">
-              Enterprise-grade stock management featuring 4-decimal precision arithmetic, incoming receipts validation, immutable stock ledger, and session security.
+              Track incoming goods, deliveries, stock transfers, and physical counts in one place.
             </p>
           </div>
 
-          {/* Demo Logins Box */}
-          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4.5 space-y-3 shadow-xl backdrop-blur-md">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5" />
-                Quick Demo Accounts
-              </span>
-              <span className="text-[11px] text-slate-400">Click to autofill</span>
-            </div>
 
-            <div className="grid grid-cols-1 gap-2">
-              {demoAccounts.map((acc) => (
-                <button
-                  key={acc.email}
-                  type="button"
-                  onClick={() => fillDemoAccount(acc)}
-                  className={`flex items-center justify-between p-2.5 rounded-xl border transition-all text-left group ${acc.color}`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${acc.badge}`}>
-                      {acc.role}
-                    </span>
-                    <div>
-                      <p className="text-xs font-semibold text-slate-900">{acc.name}</p>
-                      <p className="text-[11px] text-slate-500">{acc.email}</p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-semibold text-purple-700 opacity-0 group-hover:opacity-100 transition-opacity">
-                    Fill &rarr;
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         {/* Right Auth Card */}

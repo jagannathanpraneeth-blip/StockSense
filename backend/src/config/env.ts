@@ -44,5 +44,11 @@ export const config: AppConfig = {
   otpResendCooldownSeconds: parseInt(process.env.OTP_RESEND_COOLDOWN_SECONDS || '60', 10),
 
   // Log OTPs to server console ONLY in development when SMTP is not configured
-  localOtpLog: process.env.NODE_ENV === 'development' && !process.env.SMTP_HOST,
+  localOtpLog: process.env.NODE_ENV === 'development' && process.env.LOCAL_OTP_LOG === 'true' && !process.env.SMTP_HOST,
 };
+
+if (config.nodeEnv === 'production') {
+  if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32 || process.env.SESSION_SECRET.includes('change-me')) throw new Error('Production requires a random SESSION_SECRET of at least 32 characters');
+  if (!process.env.CORS_ORIGIN || !/^https:\/\//.test(process.env.CORS_ORIGIN)) throw new Error('Production requires CORS_ORIGIN set to the public HTTPS origin');
+  if (!process.env.DATABASE_URL || !process.env.SESSION_DB_DIR) throw new Error('Production requires persistent DATABASE_URL and SESSION_DB_DIR');
+}

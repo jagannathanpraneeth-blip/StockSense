@@ -1,3 +1,4 @@
+import { useAuth } from '../../context/AuthContext';
 import React, { useState, useEffect } from 'react';
 import {
   X,
@@ -31,6 +32,8 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({
   onClose,
   onReceiptUpdated,
 }) => {
+  const { user } = useAuth();
+  const canValidate = user?.role === 'ADMIN' || user?.role === 'INVENTORY_MANAGER';
   const { showSuccess, showError } = useToast();
   const [receipt, setReceipt] = useState<Operation | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
@@ -177,9 +180,9 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({
     setValidating(true);
     setError(null);
     try {
-      const validated = await api.validateReceipt(receipt.id, receipt.version, true);
+      const validated = await api.validateReceipt(receipt.id, receipt.version, false);
       setReceipt(validated);
-      showSuccess(`Receipt ${receipt.reference} validated! Stock updated atomically.`);
+      showSuccess(`Receipt ${receipt.reference} validated! Stock updated.`);
       onReceiptUpdated();
     } catch (err: any) {
       setError(err.message || 'Validation failed. Please refresh and try again.');
@@ -235,10 +238,15 @@ export const ReceiptDetailModal: React.FC<ReceiptDetailModalProps> = ({
         {isDraft && (
           <div className="px-6 py-3 bg-purple-50/70 border-b border-purple-100 flex flex-wrap items-center justify-between gap-3 shrink-0">
             <div className="flex items-center gap-2">
+              <button className="text-xs px-3 py-2 border rounded-lg" disabled={actionLoading || validating} onClick={async () => {
+                if (!receipt) return;
+                setActionLoading(true);
+                try { await api.cancelReceipt(receipt.id); onReceiptUpdated(); onClose(); } catch (e: any) { setError(e.message); } finally { setActionLoading(false); }
+              }}>Cancel receipt</button>
               <button
                 type="button"
                 onClick={handleValidate}
-                disabled={validating || actionLoading}
+                disabled={!canValidate || validating || actionLoading}
                 className="py-2 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-500/20 transition-all flex items-center gap-2"
               >
                 {validating ? (

@@ -1,0 +1,109 @@
+StockSense verification — 26 September 2026
+Command: npm run verify
+Environment: Node 24, Linux; isolated temporary SQLite databases.
+DOM interaction checks do not verify rendered layout. SMTP uses local capture only.
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> stocksense@0.1.0 verify
+> npm run build && npm run test:review
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> stocksense@0.1.0 build
+> npm --prefix backend run build && npm --prefix frontend run build
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> stocksense-backend@0.1.0 build
+> tsc
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> stocksense-frontend@0.1.0 build
+> tsc && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 1608 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   1.49 kB │ gzip:  0.78 kB
+dist/assets/index-BTXV6UO7.css   39.08 kB │ gzip:  7.01 kB
+dist/assets/index-BZtRZdn0.js   399.91 kB │ gzip: 88.53 kB
+✓ built in 1.87s
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> stocksense@0.1.0 test:review
+> npm --prefix backend run test:review
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> stocksense-backend@0.1.0 test:review
+> node scripts/test-review.cjs
+
+PASS 1: Unauthenticated business API rejected
+PASS 2: Manager login returns a session cookie
+PASS 3: Signup cannot self-assign privileged role
+PASS 4: Cross-origin authenticated write rejected
+PASS 5: Duplicate SKU rejected
+PASS 6: Receipt draft leaves stock unchanged
+PASS 7: Staff receipt validation rejected
+PASS 8: Receive 100: A=100, B=0
+PASS 9: Repeated validation does not add stock
+PASS 10: Transfer 30: A=70, B=30, total=100
+PASS 11: Deliver 20: A=70, B=10
+PASS 12: Count 8: A=70, B=8, total=78
+PASS 13: Five actual API-generated ledger entries reconcile to balances
+PASS 14: Simultaneous validation applies exactly once
+PASS 15: Competing deliveries cannot overdraw stock
+PASS 16: Multi-line rejection leaves all balances and ledger unchanged
+PASS 17: Stale count rejected even after balance returns to its original quantity
+PASS 18: Fractional receipts 0.1 + 0.2 produce 0.3
+PASS 19: Excess precision rejected
+PASS 20: Same-location transfer rejected
+PASS 21: Canceled receipt cannot change stock
+PASS 22: Completed receipt cannot be edited
+PASS 23: Opening stock is audited
+PASS 24: Staff cannot create nonzero opening stock
+PASS 25: Empty-warehouse filter returns zero movements
+PASS 26: Category filter also filters operation counts
+PASS 27: Document type and status filters apply
+PASS 28: Ledger pages contain distinct ordered records and totals
+PASS 29: Invalid ledger dates rejected
+PASS 30: Invalid scheduled date rejected
+PASS 31: Packed delivery quantities cannot be edited
+PASS 32: Inactive product cannot be used in a new receipt
+PASS 33: Unconfigured reset email reports configuration error
+PASS 34: Expired OTP rejected
+PASS 35: Wrong OTP consumes an attempt
+PASS 36: Concurrent password reset consumes OTP once
+PASS 37: Password reset invalidates the old session
+PASS 38: Inventory and manager session persist after backend restart
+PASS 39: Logout invalidates session
+PASS 40: Production frontend serves client-side routes
+PASS 41: Unknown API route returns JSON 404
+UI PASS: Login opens Dashboard
+UI PASS: Sidebar: Products & Stock
+UI PASS: Sidebar: Incoming Receipts
+UI PASS: Sidebar: Delivery Orders
+UI PASS: Sidebar: Internal Transfers
+UI PASS: Sidebar: Adjustments
+UI PASS: Sidebar: Move History
+UI PASS: Sidebar: Warehouse Settings
+UI PASS: Products table loads and search filters
+UI PASS: Product dialog shows live location balances A=70, B=8
+UI PASS: Product dialog closes
+UI PASS: Warehouses tab loads
+UI PASS: Locations tab loads
+UI PASS: Movement history loads with pagination
+UI PASS: Operation navigation: Incoming Receipts
+UI PASS: Operation navigation: Delivery Orders
+UI PASS: Operation navigation: Internal Transfers
+UI PASS: Operation navigation: Adjustments
+PASS 42: React DOM interactions against the real API
+PASS 43: Reset request delivers a code through the real SMTP adapter to a local capture server
+PASS 44: SMTP-delivered code is accepted by the verification route
+PASS 45: Production login issues HttpOnly, Secure, SameSite=Lax cookies behind the configured proxy
+PASS 46: Production session accesses persisted inventory
+RESULT: 46 passed, 0 failed. Visual browser layout and external SMTP delivery not tested here.

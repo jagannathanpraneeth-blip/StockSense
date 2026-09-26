@@ -37,6 +37,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const response = await fetch(url, { ...options, headers, credentials: 'include' });
 
   if (!response.ok) {
+    if (response.status === 401 && (!endpoint.startsWith('/auth/') || endpoint === '/auth/me')) {
+      window.dispatchEvent(new Event('stocksense:session-expired'));
+    }
     let errorData: any = {};
     try { errorData = await response.json(); }
     catch { errorData = { message: response.statusText || 'An unexpected error occurred' }; }
@@ -78,8 +81,13 @@ export async function resetPassword(data: { email: string; otp: string; newPassw
 }
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
-export async function getDashboardStats(): Promise<DashboardStats> {
-  const res = await request<ApiResponse<DashboardStats>>('/dashboard');
+export async function getDashboardStats(warehouseId?: string, categoryId?: string, filters: { locationId?: string; type?: string; status?: string } = {}): Promise<DashboardStats> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) if (value) params.append(key, value);
+  if (warehouseId) params.append('warehouseId', warehouseId);
+  if (categoryId) params.append('categoryId', categoryId);
+  const query = params.toString() ? `?${params}` : '';
+  const res = await request<ApiResponse<DashboardStats>>(`/dashboard${query}`);
   return res.data;
 }
 
@@ -143,7 +151,17 @@ export async function getProduct(id: string): Promise<Product> {
   const res = await request<ApiResponse<Product>>(`/products/${id}`);
   return res.data;
 }
-export async function createProduct(data: { name: string; sku: string; categoryId: string; uom: string; reorderThreshold: number; description?: string | null; isActive?: boolean }): Promise<Product> {
+export async function createProduct(data: {
+  name: string;
+  sku: string;
+  categoryId: string;
+  uom: string;
+  reorderThreshold: number;
+  description?: string | null;
+  isActive?: boolean;
+  initialStock?: number;
+  initialLocationId?: string | null;
+}): Promise<Product> {
   const res = await request<ApiResponse<Product>>('/products', { method: 'POST', body: JSON.stringify(data) });
   return res.data;
 }
@@ -302,7 +320,7 @@ export async function cancelAdjustment(adjustmentId: string): Promise<Operation>
 }
 
 // ─── Stock Ledger ─────────────────────────────────────────────────────────────
-export async function getLedgerEntries(params?: { productId?: string; locationId?: string; referenceType?: string; search?: string; dateFrom?: string; dateTo?: string }): Promise<StockLedger[]> {
+export async function getLedgerEntries(params?: { productId?: string; locationId?: string; referenceType?: string; search?: string; dateFrom?: string; dateTo?: string; offset?: number }): Promise<{ data: StockLedger[]; meta: { total: number; hasMore: boolean } }> {
   const searchParams = new URLSearchParams();
   if (params?.productId) searchParams.append('productId', params.productId);
   if (params?.locationId) searchParams.append('locationId', params.locationId);
@@ -311,6 +329,7 @@ export async function getLedgerEntries(params?: { productId?: string; locationId
   if (params?.dateFrom) searchParams.append('dateFrom', params.dateFrom);
   if (params?.dateTo) searchParams.append('dateTo', params.dateTo);
   const query = searchParams.toString() ? `?${searchParams}` : '';
-  const res = await request<ApiResponse<StockLedger[]>>(`/ledger${query}`);
-  return res.data;
+  return request(`/ledger${query}${query ? '&' : '?'}limit=50&offset=${params?.offset || 0}`);
 }
+
+export async function cancelReceipt(id: string): Promise<void> { await request(`/receipts/${id}/cancel`, { method: 'POST' }); }

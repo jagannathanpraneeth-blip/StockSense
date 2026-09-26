@@ -18,7 +18,7 @@ export const ProfilePage: React.FC = () => {
   const roleColors: Record<string, { badge: string; desc: string }> = {
     ADMIN: {
       badge: 'bg-indigo-100 text-indigo-700 border-indigo-200',
-      desc: 'Full system administration, security configurations, warehouse management and operator audits.',
+      desc: 'Manage products, warehouses, and stock operations, including validation and physical counts.',
     },
     INVENTORY_MANAGER: {
       badge: 'bg-purple-100 text-purple-700 border-purple-200',
@@ -26,7 +26,7 @@ export const ProfilePage: React.FC = () => {
     },
     WAREHOUSE_STAFF: {
       badge: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-      desc: 'Receiving, staging, picking, and packing operations on assigned warehouse floors.',
+      desc: 'Prepare stock documents, enter quantities, and perform picking and packing. A manager validates changes to stock.',
     },
   };
 
@@ -59,7 +59,7 @@ export const ProfilePage: React.FC = () => {
                 <span
                   className={`px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider border ${currentRoleInfo.badge}`}
                 >
-                  {user.role.replace('_', ' ')}
+                  {user.role.replace(/_/g, ' ')}
                 </span>
               </div>
               <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-1">
@@ -89,7 +89,7 @@ export const ProfilePage: React.FC = () => {
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Account Status</span>
             <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-              <span>Active & Verified</span>
+              <span>Active</span>
             </div>
           </div>
         </div>
@@ -98,7 +98,7 @@ export const ProfilePage: React.FC = () => {
         <div className="p-5 bg-purple-50/50 rounded-2xl border border-purple-100 space-y-2">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-purple-600" />
-            <h4 className="text-sm font-bold text-purple-950">Role Permissions: {user.role.replace('_', ' ')}</h4>
+            <h4 className="text-sm font-bold text-purple-950">Role Permissions: {user.role.replace(/_/g, ' ')}</h4>
           </div>
           <p className="text-xs text-purple-900 leading-relaxed">{currentRoleInfo.desc}</p>
         </div>

@@ -5,87 +5,169 @@ import { roundQuantity } from '../utils/quantity';
 /**
  * Dashboard stats — all values sourced from live DB queries.
  *
- * "Products in stock" = distinct SKUs with at least one location balance > 0.
- * Quantities are NOT summed across incompatible UOMs (see low-stock section).
- * Low-stock check is per-product: total across all locations vs reorderThreshold.
+ * Supports dynamic filters:
+ * - `warehouseId`: filters location balances, low stock, operations, and recent moves.
+ * - `categoryId`: filters products and stock counts by category.
  */
 export const getDashboardStats = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Total active products
-    const totalProducts = await prisma.product.count({ where: { isActive: true } });
+    const { warehouseId, categoryId, locationId, type, status } = req.query;
 
-    // Products with at least one positive balance (distinct SKUs in stock)
-    const inStockProducts = await prisma.product.count({
-      where: {
-        isActive: true,
-        stockBalances: { some: { quantity: { gt: 0 } } },
+    const productWhere: Record<string, any> = { isActive: true };
+    if (categoryId && typeof categoryId === 'string' && categoryId.trim() !== '') {
+      productWhere.categoryId = categoryId.trim();
+    }
+
+    // Total active products (subject to category filter)
+    const totalProducts = await prisma.product.count({ where: productWhere });
+
+    // Stock balance location filtering
+    let locationIds: string[] | undefined;
+    if (warehouseId && typeof warehouseId === 'string' && warehouseId.trim() !== '') {
+      const locs = await prisma.location.findMany({
+        where: { warehouseId: warehouseId.trim(), isActive: true },
+        select: { id: true },
+      });
+      locationIds = locs.map((l) => l.id);
+    }
+
+    if (typeof locationId === 'string' && locationId) {
+      locationIds = locationIds ? locationIds.filter(id => id === locationId) : [locationId];
+    }
+
+    // Fetch products with their stock balances to compute live metrics
+    const productsWithStock = await prisma.product.findMany({
+      where: productWhere,
+      include: {
+        stockBalances: {
+          where: locationIds ? { locationId: { in: locationIds } } : undefined,
+          select: { quantity: true, locationId: true },
+        },
       },
     });
 
-    // Low stock: active products where sum of all location balances <= reorderThreshold
-    // We fetch and compute in application layer to respect 4-decimal precision
-    const productsWithStock = await prisma.product.findMany({
-      where: { isActive: true, reorderThreshold: { gt: 0 } },
-      include: { stockBalances: { select: { quantity: true } } },
-    });
-    const lowStockCount = productsWithStock.filter((p) => {
-      const total = roundQuantity(p.stockBalances.reduce((s, b) => s + b.quantity, 0));
-      return total <= p.reorderThreshold;
-    }).length;
+    const globalBalances = await prisma.stockBalance.findMany({ where: { product: productWhere } });
+    const globalTotals = new Map<string, number>();
+    for (const balance of globalBalances) globalTotals.set(balance.productId, roundQuantity((globalTotals.get(balance.productId) || 0) + balance.quantity));
+    let inStockProducts = 0;
+    let outOfStockProducts = 0;
+    let lowStockCount = 0;
 
-    // Operation counts
-    const [receiptsTotal, receiptsThisWeek, deliveriesTotal, transfersTotal, adjustmentsTotal] =
-      await Promise.all([
-        prisma.operation.count({ where: { type: 'RECEIPT' } }),
-        prisma.operation.count({
-          where: {
-            type: 'RECEIPT',
-            status: 'DONE',
-            validatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) },
-          },
-        }),
-        prisma.operation.count({ where: { type: 'DELIVERY' } }),
-        prisma.operation.count({ where: { type: 'INTERNAL_TRANSFER' } }),
-        prisma.operation.count({ where: { type: 'ADJUSTMENT' } }),
-      ]);
+    for (const prod of productsWithStock) {
+      const total = roundQuantity(prod.stockBalances.reduce((sum, sb) => sum + sb.quantity, 0));
+      if (total > 0) {
+        inStockProducts++;
+      } else {
+        outOfStockProducts++;
+      }
+      if (prod.reorderThreshold > 0 && (globalTotals.get(prod.id) || 0) <= prod.reorderThreshold) {
+        lowStockCount++;
+      }
+    }
 
-    // Draft operations awaiting action
-    const [draftDeliveries, draftTransfers, draftAdjustments] = await Promise.all([
-      prisma.operation.count({ where: { type: 'DELIVERY', status: { in: ['DRAFT', 'WAITING', 'READY'] } } }),
-      prisma.operation.count({ where: { type: 'INTERNAL_TRANSFER', status: 'DRAFT' } }),
-      prisma.operation.count({ where: { type: 'ADJUSTMENT', status: 'DRAFT' } }),
+    // Operation query filters
+    const opWhere: Record<string, any> = {};
+    if (locationIds) {
+      opWhere.OR = [
+        { sourceLocationId: { in: locationIds } },
+        { destLocationId: { in: locationIds } },
+      ];
+    }
+
+    const selected: any[] = [];
+    if (typeof type === 'string' && type) selected.push({ type });
+    if (typeof status === 'string' && status) selected.push({ status });
+    if (typeof categoryId === 'string' && categoryId) selected.push({ lines: { some: { product: { categoryId } } } });
+    if (selected.length) opWhere.AND = selected;
+
+    const filteredOperations = await prisma.operation.findMany({ where: opWhere, orderBy: { createdAt: 'desc' }, take: 50,
+      select: { id: true, reference: true, type: true, status: true, partner: true, expectedDate: true } });
+    const [
+      receiptsTotal,
+      receiptsPending,
+      receiptsThisWeek,
+      deliveriesTotal,
+      deliveriesPending,
+      transfersTotal,
+      transfersPending,
+      transfersScheduled,
+      adjustmentsTotal,
+      adjustmentsPending,
+    ] = await Promise.all([
+      // Receipts
+      prisma.operation.count({ where: { ...opWhere, type: 'RECEIPT' } }),
+      prisma.operation.count({ where: { ...opWhere, type: 'RECEIPT', status: { in: ['DRAFT', 'WAITING', 'READY'] } } }),
+      prisma.operation.count({
+        where: {
+          ...opWhere,
+          type: 'RECEIPT',
+          status: 'DONE',
+          validatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) },
+        },
+      }),
+
+      // Deliveries
+      prisma.operation.count({ where: { ...opWhere, type: 'DELIVERY' } }),
+      prisma.operation.count({ where: { ...opWhere, type: 'DELIVERY', status: { in: ['DRAFT', 'WAITING', 'READY'] } } }),
+
+      // Internal Transfers
+      prisma.operation.count({ where: { ...opWhere, type: 'INTERNAL_TRANSFER' } }),
+      prisma.operation.count({ where: { ...opWhere, type: 'INTERNAL_TRANSFER', status: 'DRAFT' } }),
+      prisma.operation.count({
+        where: {
+          ...opWhere,
+          type: 'INTERNAL_TRANSFER',
+          status: 'DRAFT',
+          expectedDate: { not: null },
+        },
+      }),
+
+      // Adjustments
+      prisma.operation.count({ where: { ...opWhere, type: 'ADJUSTMENT' } }),
+      prisma.operation.count({ where: { ...opWhere, type: 'ADJUSTMENT', status: 'DRAFT' } }),
     ]);
 
-    // Recent ledger moves (last 10)
+    // Recent ledger moves
+    const recentMovesWhere: Record<string, any> = {};
+    if (locationIds) {
+      recentMovesWhere.locationId = { in: locationIds };
+    }
+    if (categoryId && typeof categoryId === 'string' && categoryId.trim() !== '') {
+      recentMovesWhere.product = { categoryId: categoryId.trim() };
+    }
+
+    if (typeof type === 'string' && type) recentMovesWhere.operation = { ...(recentMovesWhere.operation || {}), type };
+    if (typeof status === 'string' && status) recentMovesWhere.operation = { ...(recentMovesWhere.operation || {}), status };
+
     const recentMoves = await prisma.stockLedger.findMany({
+      where: recentMovesWhere,
       orderBy: { createdAt: 'desc' },
       take: 10,
       include: {
         product: { select: { id: true, name: true, sku: true, uom: true } },
-        location: { select: { id: true, name: true, code: true } },
+        location: { select: { id: true, name: true, code: true, warehouse: { select: { name: true, code: true } } } },
         actor: { select: { id: true, name: true } },
       },
     });
 
-    // Warehouse count
     const warehouseCount = await prisma.warehouse.count({ where: { isActive: true } });
-
-    // Total ledger entries
-    const ledgerCount = await prisma.stockLedger.count();
+    const ledgerCount = await prisma.stockLedger.count({ where: recentMovesWhere });
 
     res.status(200).json({
       success: true,
       data: {
+        filteredOperations,
         products: {
           total: totalProducts,
           inStock: inStockProducts,
+          outOfStock: outOfStockProducts,
           lowStock: lowStockCount,
         },
         operations: {
-          receipts: { total: receiptsTotal, thisWeek: receiptsThisWeek },
-          deliveries: { total: deliveriesTotal, pending: draftDeliveries },
-          transfers: { total: transfersTotal, pending: draftTransfers },
-          adjustments: { total: adjustmentsTotal, pending: draftAdjustments },
+          receipts: { total: receiptsTotal, pending: receiptsPending, thisWeek: receiptsThisWeek },
+          deliveries: { total: deliveriesTotal, pending: deliveriesPending },
+          transfers: { total: transfersTotal, pending: transfersPending, scheduled: transfersScheduled },
+          adjustments: { total: adjustmentsTotal, pending: adjustmentsPending },
         },
         warehouses: warehouseCount,
         ledgerMoves: ledgerCount,

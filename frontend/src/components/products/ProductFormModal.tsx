@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Info } from 'lucide-react';
+import { Plus, ShieldCheck } from 'lucide-react';
 import { Modal } from '../common/Modal';
-import { createProduct, updateProduct } from '../../api/client';
+import { createProduct, updateProduct, getLocations } from '../../api/client';
 import { useToast } from '../common/Toast';
-import { Product, Category } from '../../types';
+import { useAuth } from '../../context/AuthContext';
+import { Product, Category, Location } from '../../types';
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -24,8 +25,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   onSuccess,
   onOpenCategoryModal,
 }) => {
+  const { user } = useAuth();
   const { showSuccess, showError } = useToast();
   const isEditing = Boolean(product);
+  const isManagerOrAdmin = user?.role === 'ADMIN' || user?.role === 'INVENTORY_MANAGER';
 
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
@@ -35,9 +38,26 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [description, setDescription] = useState('');
   const [isActive, setIsActive] = useState(true);
 
+  // Optional initial stock
+  const [initialStock, setInitialStock] = useState<string>('0');
+  const [initialLocationId, setInitialLocationId] = useState<string>('');
+  const [locations, setLocations] = useState<Location[]>([]);
+
   const [submitting, setSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      getLocations().then((locs) => {
+        const active = locs.filter((l) => !l.isScrap && l.isActive);
+        setLocations(active);
+        if (active.length > 0 && !initialLocationId) {
+          setInitialLocationId(active[0].id);
+        }
+      }).catch(() => {});
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (product) {
@@ -48,6 +68,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setReorderThreshold(String(product.reorderThreshold ?? 0));
       setDescription(product.description || '');
       setIsActive(product.isActive);
+      setInitialStock('0');
     } else {
       setName('');
       setSku('');
@@ -56,6 +77,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setReorderThreshold('0');
       setDescription('');
       setIsActive(true);
+      setInitialStock('0');
     }
     setFieldErrors({});
     setGeneralError(null);
@@ -71,6 +93,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     if (isNaN(thresholdNum) || thresholdNum < 0) {
       errors.reorderThreshold = 'Threshold must be a valid non-negative number';
     }
+    const initStockNum = parseFloat(initialStock);
+    if (isNaN(initStockNum) || initStockNum < 0) {
+      errors.initialStock = 'Opening stock must be a non-negative number';
+    }
+    if (initStockNum > 0 && !initialLocationId) {
+      errors.initialLocationId = 'Please select a location for opening stock';
+    }
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -84,6 +113,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setFieldErrors({});
       setGeneralError(null);
 
+      const parsedInitStock = parseFloat(initialStock) || 0;
+
       const payload = {
         name: name.trim(),
         sku: sku.trim().toUpperCase(),
@@ -92,6 +123,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         reorderThreshold: parseFloat(reorderThreshold) || 0,
         description: description.trim() || null,
         isActive,
+        initialStock: !isEditing && isManagerOrAdmin ? parsedInitStock : 0,
+        initialLocationId: !isEditing && isManagerOrAdmin && parsedInitStock > 0 ? initialLocationId : null,
       };
 
       let result: Product;
@@ -100,7 +133,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         showSuccess(`Product "${result.name}" updated successfully`);
       } else {
         result = await createProduct(payload);
-        showSuccess(`Product "${result.name}" created with zero initial balance`);
+        if (parsedInitStock > 0) {
+          showSuccess(`Product "${result.name}" created with ${parsedInitStock} opening stock (audited in ledger)`);
+        } else {
+          showSuccess(`Product "${result.name}" created with zero initial balance`);
+        }
       }
 
       onSuccess(result);
@@ -137,16 +174,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         {generalError && (
           <div className="p-3 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">
             {generalError}
-          </div>
-        )}
-
-        {/* Notice for new product zero balance */}
-        {!isEditing && (
-          <div className="flex items-start gap-2.5 p-3 text-xs text-purple-800 bg-purple-50/80 border border-purple-200/70 rounded-lg">
-            <Info className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-            <p>
-              In Stage 1, newly created products start with <strong>0.0 stock balance</strong> across all warehouse locations. Opening stock entry will be logged into the ledger in Stage 2 operations.
-            </p>
           </div>
         )}
 
@@ -200,16 +227,16 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           {/* Category with quick add button */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
                 Category <span className="text-rose-500">*</span>
               </label>
               <button
                 type="button"
                 onClick={onOpenCategoryModal}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-purple-600 hover:text-purple-800"
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-600 hover:text-purple-700"
               >
                 <Plus className="w-3 h-3" />
-                <span>New</span>
+                <span>New Category</span>
               </button>
             </div>
             <select
@@ -223,7 +250,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               }`}
               required
             >
-              <option value="" disabled>Select Category</option>
+              <option value="" disabled>Select a category</option>
               {categories.map((cat) => (
                 <option key={cat.id} value={cat.id}>
                   {cat.name}
@@ -241,104 +268,139 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               Unit of Measure (UOM) <span className="text-rose-500">*</span>
             </label>
             <div className="flex gap-2">
-              <select
-                value={COMMON_UOMS.includes(uom) ? uom : 'custom'}
-                onChange={(e) => {
-                  if (e.target.value !== 'custom') {
-                    setUom(e.target.value);
-                  }
-                }}
-                className="w-1/2 px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-slate-900"
-              >
-                {COMMON_UOMS.map((unit) => (
-                  <option key={unit} value={unit}>{unit}</option>
-                ))}
-                <option value="custom">Other / Custom</option>
-              </select>
               <input
                 type="text"
                 value={uom}
-                onChange={(e) => setUom(e.target.value)}
-                placeholder="Units, kg, m..."
-                className="w-1/2 px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-slate-900"
+                onChange={(e) => {
+                  setUom(e.target.value);
+                  if (fieldErrors.uom) setFieldErrors((prev) => ({ ...prev, uom: '' }));
+                }}
+                placeholder="e.g. kg, m, Box"
+                className={`w-full px-3.5 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-slate-900 ${
+                  fieldErrors.uom ? 'border-rose-300 ring-1 ring-rose-300' : 'border-slate-200'
+                }`}
                 required
               />
             </div>
-            {fieldErrors.uom && (
-              <p className="mt-1 text-xs text-rose-600">{fieldErrors.uom}</p>
-            )}
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {COMMON_UOMS.map((commonUom) => (
+                <button
+                  key={commonUom}
+                  type="button"
+                  onClick={() => setUom(commonUom)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                    uom === commonUom
+                      ? 'bg-purple-50 border-purple-300 text-purple-700 font-semibold'
+                      : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {commonUom}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Reorder Threshold */}
+          {/* Reorder Warning Threshold */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
               Reorder Warning Threshold
             </label>
             <input
               type="number"
-              step="any"
               min="0"
+              step="0.0001"
               value={reorderThreshold}
               onChange={(e) => {
                 setReorderThreshold(e.target.value);
                 if (fieldErrors.reorderThreshold) setFieldErrors((prev) => ({ ...prev, reorderThreshold: '' }));
               }}
-              placeholder="0.0"
               className={`w-full px-3.5 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-slate-900 ${
                 fieldErrors.reorderThreshold ? 'border-rose-300 ring-1 ring-rose-300' : 'border-slate-200'
               }`}
             />
-            <p className="text-[11px] text-slate-400 mt-1">
-              Triggers low stock alert when total stock ≤ threshold
+            <p className="mt-1 text-[11px] text-slate-500">
+              Low-stock alerts trigger when total on-hand stock is &le; threshold.
             </p>
-            {fieldErrors.reorderThreshold && (
-              <p className="mt-1 text-xs text-rose-600">{fieldErrors.reorderThreshold}</p>
-            )}
           </div>
+
+          {/* Optional Opening Stock (Available to Managers/Admins during creation) */}
+          {!isEditing && isManagerOrAdmin && (
+            <div className="sm:col-span-2 p-3.5 bg-purple-50/50 border border-purple-200/80 rounded-xl space-y-3">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-purple-700" />
+                <span className="text-xs font-bold text-purple-900 uppercase tracking-wider">
+                  Manager Opening Stock (Optional)
+                </span>
+              </div>
+              <p className="text-[11px] text-purple-700">
+                Opening stock will be recorded via an audited adjustment and ledger entry upon creation.
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-purple-900 mb-1">
+                    Opening Quantity
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.0001"
+                    value={initialStock}
+                    onChange={(e) => setInitialStock(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-purple-200 rounded-lg text-slate-900 font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-purple-900 mb-1">
+                    Storage Location
+                  </label>
+                  <select
+                    value={initialLocationId}
+                    onChange={(e) => setInitialLocationId(e.target.value)}
+                    disabled={parseFloat(initialStock) <= 0}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-purple-200 rounded-lg text-slate-900 disabled:opacity-50"
+                  >
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.warehouse?.name} - {loc.name} ({loc.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Description */}
           <div className="sm:col-span-2">
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-              Description <span className="text-slate-400 font-normal">(Optional)</span>
+              Description (Optional)
             </label>
             <textarea
+              rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              placeholder="Additional specifications or notes..."
+              placeholder="Provide additional details, storage instructions, or specifications..."
               className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all text-slate-900 resize-none"
             />
           </div>
-
-          {/* Active Status */}
-          <div className="sm:col-span-2 flex items-center gap-2 pt-1">
-            <input
-              type="checkbox"
-              id="productActive"
-              checked={isActive}
-              onChange={(e) => setIsActive(e.target.checked)}
-              className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
-            />
-            <label htmlFor="productActive" className="text-xs font-medium text-slate-700 cursor-pointer">
-              Product is active and available for warehouse operations
-            </label>
-          </div>
         </div>
 
-        {/* Buttons */}
+        {/* Action Buttons */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
             disabled={submitting}
+            className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={submitting}
-            className="px-5 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-sm transition-all disabled:opacity-50"
+            className="px-5 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 active:scale-95 disabled:opacity-50 rounded-lg shadow-sm transition-all flex items-center gap-2"
           >
             {submitting ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Product'}
           </button>

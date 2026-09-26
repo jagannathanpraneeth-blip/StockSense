@@ -1,3 +1,6 @@
+import { checkOperationInput } from '../services/operation-input';
+import { claimOperation } from '../services/stock.service';
+import { assertQuantity } from '../utils/quantity';
 /**
  * Delivery Controller — WH/OUT operations.
  *
@@ -27,14 +30,14 @@ import {
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
 const lineInputSchema = z.object({
-  productId: z.string().min(1, 'Product is required'),
+  productId: z.string().trim().min(1, 'Product is required'),
   demandQty: z.number().positive('Demand quantity must be positive'),
   doneQty: z.number().min(0).optional().default(0),
 });
 
 const createSchema = z.object({
-  partner: z.string().min(1, 'Customer/Partner is required'),
-  sourceLocationId: z.string().min(1, 'Source location is required'),
+  partner: z.string().trim().min(1, 'Customer/Partner is required'),
+  sourceLocationId: z.string().trim().min(1, 'Source location is required'),
   expectedDate: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   lines: z.array(lineInputSchema).optional().default([]),
@@ -106,6 +109,8 @@ export const getDelivery = async (req: Request, res: Response, next: NextFunctio
 export const createDelivery = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = createSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
     const srcLoc = await prisma.location.findUnique({ where: { id: data.sourceLocationId } });
     if (!srcLoc) throw new NotFoundError('Source location not found');
 
@@ -146,6 +151,8 @@ export const updateDelivery = async (req: Request, res: Response, next: NextFunc
   try {
     const { id } = req.params;
     const data = updateSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
     const existing = await prisma.operation.findUnique({ where: { id } });
     if (!existing || existing.type !== 'DELIVERY') throw new NotFoundError('Delivery not found');
     if (!['DRAFT', 'WAITING'].includes(existing.status)) throw new AppError('Only DRAFT or WAITING deliveries can be updated', 400);
@@ -170,6 +177,8 @@ export const addLine = async (req: Request, res: Response, next: NextFunction) =
   try {
     const { id } = req.params;
     const data = lineInputSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
     const op = await prisma.operation.findUnique({ where: { id } });
     if (!op || op.type !== 'DELIVERY') throw new NotFoundError('Delivery not found');
     if (!['DRAFT', 'WAITING'].includes(op.status)) throw new AppError('Lines can only be added to DRAFT or WAITING deliveries', 400);
@@ -186,6 +195,7 @@ export const addLine = async (req: Request, res: Response, next: NextFunction) =
       },
       include: { product: { select: { id: true, name: true, sku: true, uom: true } } },
     });
+    await prisma.operation.update({ where: { id }, data: { version: { increment: 1 } } });
     res.status(201).json({ success: true, data: line });
   } catch (e) { next(e); }
 };
@@ -194,9 +204,11 @@ export const updateLine = async (req: Request, res: Response, next: NextFunction
   try {
     const { id, lineId } = req.params;
     const data = lineUpdateSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
     const op = await prisma.operation.findUnique({ where: { id } });
     if (!op || op.type !== 'DELIVERY') throw new NotFoundError('Delivery not found');
-    if (!['DRAFT', 'WAITING', 'READY'].includes(op.status)) throw new AppError('Cannot edit lines on a completed delivery', 400);
+    if (!['DRAFT', 'WAITING'].includes(op.status)) throw new AppError('Cannot edit lines on a completed delivery', 400);
     const existing = await prisma.operationLine.findFirst({ where: { id: lineId, operationId: id } });
     if (!existing) throw new NotFoundError('Line not found');
     const updateData: any = {};
@@ -207,6 +219,7 @@ export const updateLine = async (req: Request, res: Response, next: NextFunction
       data: updateData,
       include: { product: { select: { id: true, name: true, sku: true, uom: true } } },
     });
+    await prisma.operation.update({ where: { id }, data: { version: { increment: 1 } } });
     res.json({ success: true, data: line });
   } catch (e) { next(e); }
 };
@@ -218,6 +231,7 @@ export const deleteLine = async (req: Request, res: Response, next: NextFunction
     if (!op || op.type !== 'DELIVERY') throw new NotFoundError('Delivery not found');
     if (!['DRAFT', 'WAITING'].includes(op.status)) throw new AppError('Lines can only be deleted from DRAFT or WAITING deliveries', 400);
     await prisma.operationLine.deleteMany({ where: { id: lineId, operationId: id } });
+    await prisma.operation.update({ where: { id }, data: { version: { increment: 1 } } });
     res.json({ success: true, message: 'Line deleted' });
   } catch (e) { next(e); }
 };
@@ -246,6 +260,8 @@ export const markReady = async (req: Request, res: Response, next: NextFunction)
     const op = await prisma.operation.findUnique({ where: { id } });
     if (!op || op.type !== 'DELIVERY') throw new NotFoundError('Delivery not found');
     if (op.status !== 'WAITING') throw new AppError('Only WAITING deliveries can be marked ready', 400);
+    const packedLines = await prisma.operationLine.findMany({ where: { operationId: id } });
+    if (!packedLines.some(l => l.doneQty > 0)) throw new AppError('Enter the actual picked quantities before confirming packing', 400);
     const updated = await prisma.operation.update({
       where: { id }, data: { status: 'READY', version: { increment: 1 } }, include: DELIVERY_INCLUDE,
     });
@@ -262,6 +278,8 @@ export const validateDelivery = async (req: Request, res: Response, next: NextFu
     const result = await prisma.$transaction(async (tx) => {
       const delivery = await tx.operation.findUnique({ where: { id }, include: { lines: true } });
       if (!delivery || delivery.type !== 'DELIVERY') throw new NotFoundError('Delivery not found');
+      await claimOperation(tx, id, delivery.type, delivery.status, version);
+      await checkOperationInput(delivery, tx);
       if (delivery.status === 'DONE') throw new AppError('Delivery is already validated', 400);
       if (delivery.status !== 'READY') throw new AppError(`Delivery must be in READY status to validate (current: ${delivery.status}). Complete picking and packing first.`, 400);
       if (delivery.version !== version) throw new ConflictError('Delivery was modified concurrently. Refresh and retry.');
@@ -271,7 +289,7 @@ export const validateDelivery = async (req: Request, res: Response, next: NextFu
       // Aggregate lines by productId to prevent duplicate product issues
       const aggregated = new Map<string, number>();
       for (const line of delivery.lines) {
-        const qty = roundQuantity(line.doneQty > 0 ? line.doneQty : line.demandQty);
+        const qty = roundQuantity(line.doneQty);
         if (qty <= 0) continue;
         aggregated.set(line.productId, addQuantities(aggregated.get(line.productId) ?? 0, qty));
       }
@@ -338,3 +356,10 @@ export const cancelDelivery = async (req: Request, res: Response, next: NextFunc
     res.json({ success: true, data: updated });
   } catch (e) { next(e); }
 };
+
+function checkQuantities(body: any): void {
+  for (const key of ['demandQty', 'doneQty', 'countedQty', 'initialStock', 'reorderThreshold']) {
+    if (body[key] !== undefined) assertQuantity(body[key]);
+  }
+  if (Array.isArray(body.lines)) body.lines.forEach(checkQuantities);
+}

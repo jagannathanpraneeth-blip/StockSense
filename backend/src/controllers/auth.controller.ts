@@ -11,30 +11,30 @@ const SALT_ROUNDS = 10;
 
 // Schemas
 const signupSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email('Invalid email address').toLowerCase(),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  name: z.string().trim().min(2, 'Name must be at least 2 characters'),
+  email: z.string().trim().email('Invalid email address').toLowerCase(),
+  password: z.string().min(8, 'Password must be at least 8 characters').refine(p => Buffer.byteLength(p, 'utf8') <= 72, 'Password must be at most 72 UTF-8 bytes'),
   // explicitly forbidding user from providing role during signup
 });
 
 const loginSchema = z.object({
-  email: z.string().email('Invalid email address').toLowerCase(),
+  email: z.string().trim().email('Invalid email address').toLowerCase(),
   password: z.string().min(1, 'Password is required'),
 });
 
 const requestOtpSchema = z.object({
-  email: z.string().email('Invalid email address').toLowerCase(),
+  email: z.string().trim().email('Invalid email address').toLowerCase(),
 });
 
 const verifyOtpSchema = z.object({
-  email: z.string().email('Invalid email address').toLowerCase(),
-  otp: z.string().length(6, 'OTP must be exactly 6 digits'),
+  email: z.string().trim().email('Invalid email address').toLowerCase(),
+  otp: z.string().regex(/^\d{6}$/, 'OTP must be exactly 6 digits'),
 });
 
 const resetPasswordSchema = z.object({
-  email: z.string().email('Invalid email address').toLowerCase(),
-  otp: z.string().length(6, 'OTP must be exactly 6 digits'),
-  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+  email: z.string().trim().email('Invalid email address').toLowerCase(),
+  otp: z.string().regex(/^\d{6}$/, 'OTP must be exactly 6 digits'),
+  newPassword: z.string().min(8, 'Password must be at least 8 characters').refine(p => Buffer.byteLength(p, 'utf8') <= 72, 'Password must be at most 72 UTF-8 bytes'),
 });
 
 // Mailer Setup (basic)
@@ -43,6 +43,10 @@ const createMailer = () => {
     return nodemailer.createTransport({
       host: config.smtpHost,
       port: config.smtpPort,
+      secure: config.smtpPort === 465,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
       auth: config.smtpUser ? {
         user: config.smtpUser,
         pass: config.smtpPass,
@@ -54,7 +58,7 @@ const createMailer = () => {
 
 // Generate 6-digit OTP
 const generateOtp = () => {
-  return crypto.randomInt(100000, 999999).toString();
+  return crypto.randomInt(100000, 1000000).toString();
 };
 
 export const signup = async (req: Request, res: Response, next: NextFunction) => {
@@ -78,7 +82,9 @@ export const signup = async (req: Request, res: Response, next: NextFunction) =>
       select: { id: true, name: true, email: true, role: true, isActive: true },
     });
 
+    await new Promise<void>((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
     req.session.userId = user.id;
+    req.session.sessionCreatedAt = Date.now();
 
     res.status(201).json({
       success: true,
@@ -108,6 +114,7 @@ export const login = async (req: Request, res: Response, next: NextFunction) => 
       if (err) return next(new AppError('Failed to initialize session', 500));
       
       req.session.userId = user.id;
+      req.session.sessionCreatedAt = Date.now();
 
       res.status(200).json({
         success: true,
@@ -143,6 +150,7 @@ export const getMe = (req: Request, res: Response) => {
 export const requestPasswordReset = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = requestOtpSchema.parse(req.body);
+    if (!config.smtpHost && !config.localOtpLog) throw new AppError('Password reset email is not configured. Contact your administrator.', 503);
 
     const user = await prisma.user.findUnique({ where: { email: data.email } });
     if (!user || !user.isActive) {
@@ -159,14 +167,16 @@ export const requestPasswordReset = async (req: Request, res: Response, next: Ne
     });
 
     if (recentOtp) {
-      throw new AppError(`Please wait ${config.otpResendCooldownSeconds} seconds before requesting a new OTP.`, 429);
+      return res.status(200).json({ success: true, message: 'If the email exists, an OTP has been sent.' });
     }
 
     const otp = generateOtp();
     const otpHash = await bcrypt.hash(otp, SALT_ROUNDS);
     const expiresAt = new Date(Date.now() + config.otpExpiryMinutes * 60000);
 
-    await prisma.otpRequest.create({
+    // A resend invalidates every prior code, including earlier verified codes.
+    await prisma.otpRequest.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
+    const issuedOtp = await prisma.otpRequest.create({
       data: {
         userId: user.id,
         otpHash,
@@ -186,7 +196,8 @@ export const requestPasswordReset = async (req: Request, res: Response, next: Ne
         });
         console.log(`[Email] Sent OTP to ${user.email}`);
       } catch (err) {
-        console.error('Failed to send SMTP email:', err);
+        console.error('OTP email delivery failed');
+        await prisma.otpRequest.update({ where: { id: issuedOtp.id }, data: { usedAt: new Date() } });
         // Fallback to log in dev if needed, or just let user know it failed
         if (config.localOtpLog) {
           console.log(`[Development Mock] OTP for ${user.email} is: ${otp}`);
@@ -201,8 +212,7 @@ export const requestPasswordReset = async (req: Request, res: Response, next: Ne
     res.status(200).json({
       success: true,
       message: 'If the email exists, an OTP has been sent.',
-      // Explicitly noting if email was sent in payload for testing/acceptance criteria
-      debugEmailSent: mailer ? true : false, 
+
     });
   } catch (error) {
     next(error);
@@ -243,7 +253,7 @@ export const verifyOtp = async (req: Request, res: Response, next: NextFunction)
       // Increment attempts
       await prisma.otpRequest.update({
         where: { id: otpRequest.id },
-        data: { attempts: otpRequest.attempts + 1 },
+        data: { attempts: { increment: 1 } },
       });
       throw new AppError('Invalid OTP', 401);
     }
@@ -278,24 +288,23 @@ export const resetPassword = async (req: Request, res: Response, next: NextFunct
     if (!isValid) {
       await prisma.otpRequest.update({
         where: { id: otpRequest.id },
-        data: { attempts: otpRequest.attempts + 1 },
+        data: { attempts: { increment: 1 } },
       });
       throw new AppError('Invalid OTP', 401);
     }
 
-    // Mark used and update password
+    // Mark used and update password & passwordChangedAt
     const newPasswordHash = await bcrypt.hash(data.newPassword, SALT_ROUNDS);
 
-    await prisma.$transaction([
-      prisma.otpRequest.update({
-        where: { id: otpRequest.id },
+    await prisma.$transaction(async tx => {
+      const claimed = await tx.otpRequest.updateMany({
+        where: { id: otpRequest.id, usedAt: null, attempts: { lt: config.otpMaxAttempts }, expiresAt: { gt: new Date() } },
         data: { usedAt: new Date() },
-      }),
-      prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash: newPasswordHash },
-      }),
-    ]);
+      });
+      if (claimed.count !== 1) throw new AppError('OTP expired or already used', 400);
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash: newPasswordHash, passwordChangedAt: new Date() } });
+      await tx.otpRequest.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
+    });
 
     res.status(200).json({ success: true, message: 'Password reset successfully' });
   } catch (error) {

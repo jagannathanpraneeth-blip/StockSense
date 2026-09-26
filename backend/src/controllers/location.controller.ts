@@ -4,9 +4,9 @@ import prisma from '../db/client';
 import { ConflictError, NotFoundError } from '../utils/errors';
 
 const locationSchema = z.object({
-  name: z.string().min(1, 'Location name is required').max(100),
-  code: z.string().min(1, 'Location code is required').max(30).toUpperCase(),
-  warehouseId: z.string().min(1, 'Warehouse ID is required'),
+  name: z.string().trim().min(1, 'Location name is required').max(100),
+  code: z.string().trim().min(1, 'Location code is required').max(30).toUpperCase(),
+  warehouseId: z.string().trim().min(1, 'Warehouse ID is required'),
   isScrap: z.boolean().optional().default(false),
   isActive: z.boolean().optional().default(true),
 });
@@ -146,6 +146,9 @@ export async function updateLocation(req: Request, res: Response, next: NextFunc
       });
     }
 
+    if (validated.warehouseId !== location.warehouseId && await prisma.stockLedger.count({ where: { locationId: id } })) {
+      throw new ConflictError('A location with stock history cannot change warehouse. Create a new location and transfer the stock.');
+    }
     const updated = await prisma.location.update({
       where: { id },
       data: {

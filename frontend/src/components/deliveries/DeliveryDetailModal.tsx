@@ -222,7 +222,7 @@ export const DeliveryDetailModal: React.FC<DeliveryDetailModalProps> = ({
     }
   };
 
-  const isEditable = delivery?.status !== 'DONE' && delivery?.status !== 'CANCELED';
+  const isEditable = delivery?.status === 'DRAFT' || delivery?.status === 'WAITING';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
@@ -323,7 +323,7 @@ export const DeliveryDetailModal: React.FC<DeliveryDetailModalProps> = ({
                   <div>
                     <h4 className="text-xs font-bold text-emerald-900">Delivery Validated & Shipped</h4>
                     <p className="text-[11px] text-emerald-700 mt-0.5">
-                      Stock was atomically deducted from location balances and logged into the immutable ledger on{' '}
+                      Stock was deducted from location balances and logged into the stock ledger on{' '}
                       {delivery.validatedAt ? new Date(delivery.validatedAt).toLocaleString() : 'validation'}.
                     </p>
                   </div>

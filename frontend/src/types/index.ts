@@ -64,6 +64,9 @@ export interface Product {
   isActive: boolean;
   totalStock?: number;
   isLowStock?: boolean;
+  isOutOfStock?: boolean;
+  shortage?: number;
+  suggestedReplenishment?: number;
   stockBalances?: StockBalance[];
   balances?: StockBalance[];
   createdAt: string;
@@ -126,11 +129,17 @@ export interface StockLedger {
 }
 
 export interface DashboardStats {
-  products: { total: number; inStock: number; lowStock: number };
+  filteredOperations?: Pick<Operation, 'id' | 'reference' | 'type' | 'status' | 'partner' | 'expectedDate'>[];
+  products: {
+    total: number;
+    inStock: number;
+    outOfStock?: number;
+    lowStock: number;
+  };
   operations: {
-    receipts: { total: number; thisWeek: number };
+    receipts: { total: number; pending?: number; thisWeek: number };
     deliveries: { total: number; pending: number };
-    transfers: { total: number; pending: number };
+    transfers: { total: number; pending: number; scheduled?: number };
     adjustments: { total: number; pending: number };
   };
   warehouses: number;

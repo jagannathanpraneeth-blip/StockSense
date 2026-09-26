@@ -36,3 +36,12 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# SQLite sidecar files and test artifacts
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite-journal
+
+# Private deployment configuration
+production.env

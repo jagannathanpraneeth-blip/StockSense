@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, KeyRound, Mail, ShieldCheck, ArrowLeft, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import * as api from '../../api/client';
 import { useToast } from '../common/Toast';
@@ -24,7 +24,9 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string | null>(null);
+  useEffect(() => {
+    if (isOpen) { setStep('request'); setEmail(initialEmail); setOtp(''); setNewPassword(''); setConfirmPassword(''); setError(null); }
+  }, [isOpen, initialEmail]);
 
   if (!isOpen) return null;
 
@@ -35,9 +37,6 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     try {
       const res = await api.requestPasswordReset(email.trim());
       showSuccess(res.message || 'OTP sent if account exists.');
-      if (!res.debugEmailSent) {
-        setDebugInfo('SMTP is unconfigured in development. Check backend terminal logs for the 6-digit OTP.');
-      }
       setStep('verify');
     } catch (err: any) {
       setError(err.message || 'Failed to request OTP');
@@ -97,7 +96,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+      <div role="dialog" aria-modal="true" aria-label="Reset password" className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="px-6 py-5 bg-gradient-to-r from-purple-700 to-indigo-800 text-white flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -106,11 +105,13 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
             </div>
             <div>
               <h3 className="font-semibold text-base">Reset Account Password</h3>
-              <p className="text-xs text-purple-200">Secure OTP verification workflow</p>
+              <p className="text-xs text-purple-200">Verify your email to choose a new password</p>
             </div>
           </div>
           <button
             onClick={onClose}
+            aria-label="Close password reset"
+            disabled={submitting}
             className="p-1 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
           >
             <X className="w-5 h-5" />
@@ -123,13 +124,6 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
             <div className="mb-5 p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-3 text-sm text-rose-800">
               <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
               <span>{error}</span>
-            </div>
-          )}
-
-          {debugInfo && (
-            <div className="mb-5 p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3 text-xs text-amber-800">
-              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <span>{debugInfo}</span>
             </div>
           )}
 

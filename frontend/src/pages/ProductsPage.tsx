@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, Plus, RefreshCw, Filter, Boxes, AlertTriangle, Layers } from 'lucide-react';
-import { getProducts, getCategories } from '../api/client';
+import { getProducts, getCategories, getProduct } from '../api/client';
 import { Product, Category } from '../types';
 import { ProductList } from '../components/products/ProductList';
 import { ProductFormModal } from '../components/products/ProductFormModal';
@@ -15,6 +15,9 @@ export const ProductsPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const requestId = useRef(0);
+  const [stockFilter, setStockFilter] = useState('all');
+  const [loadError, setLoadError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
 
@@ -25,18 +28,23 @@ export const ProductsPage: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   const fetchData = useCallback(async () => {
+    const current = ++requestId.current;
     try {
       setLoading(true);
+      setLoadError('');
       const [prodsData, catsData] = await Promise.all([
         getProducts(searchQuery, selectedCategory || undefined),
         getCategories(),
       ]);
+      if (current !== requestId.current) return;
       setProducts(prodsData);
       setCategories(catsData);
     } catch (err: any) {
+      if (current !== requestId.current) return;
+      setLoadError(err.message || 'Failed to load products');
       showError(err.message || 'Failed to load products');
     } finally {
-      setLoading(false);
+      if (current === requestId.current) setLoading(false);
     }
   }, [searchQuery, selectedCategory, showError]);
 
@@ -57,9 +65,9 @@ export const ProductsPage: React.FC = () => {
     setIsFormModalOpen(true);
   };
 
-  const handleViewProduct = (product: Product) => {
-    setSelectedProduct(product);
-    setIsDetailModalOpen(true);
+  const handleViewProduct = async (product: Product) => {
+    try { const fresh = await getProduct(product.id); setSelectedProduct(fresh); setIsDetailModalOpen(true); }
+    catch (e: any) { showError(e.message || 'Could not load current stock'); }
   };
 
   const handleProductSaved = (saved: Product) => {
@@ -156,6 +164,9 @@ export const ProductsPage: React.FC = () => {
           />
         </div>
 
+        <select aria-label="Stock status" value={stockFilter} onChange={e => setStockFilter(e.target.value)} className="px-3 py-2 text-xs border rounded-lg">
+          <option value="all">All stock levels</option><option value="low">Low stock</option><option value="out">Out of stock</option><option value="available">In stock</option>
+        </select>
         {/* Category Filter */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1 sm:w-48">
@@ -184,12 +195,13 @@ export const ProductsPage: React.FC = () => {
         </div>
       </div>
 
+      {loadError && <div role="alert" className="p-3 bg-rose-50 text-rose-700 rounded-lg">{loadError}</div>}
       {/* Main Table Content */}
       {loading ? (
         <LoadingSpinner label="Loading product catalogue..." fullHeight />
       ) : (
         <ProductList
-          products={products}
+          products={products.filter(p => stockFilter === 'all' || (stockFilter === 'low' ? p.isLowStock : stockFilter === 'out' ? p.totalStock === 0 : (p.totalStock || 0) > 0))}
           onViewProduct={handleViewProduct}
           onEditProduct={handleEditProduct}
           onCreateProduct={handleCreateProduct}

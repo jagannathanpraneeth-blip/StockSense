@@ -32,16 +32,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     refreshUser();
+    const expired = () => setUser(null);
+    window.addEventListener('stocksense:session-expired', expired);
+    return () => window.removeEventListener('stocksense:session-expired', expired);
   }, [refreshUser]);
 
   const handleLogin = async (credentials: { email: string; password: string }): Promise<User> => {
     const loggedInUser = await api.login(credentials);
+    window.location.hash = 'dashboard';
     setUser(loggedInUser);
     return loggedInUser;
   };
 
   const handleSignup = async (data: { name: string; email: string; password: string }): Promise<User> => {
     const newUser = await api.signup(data);
+    window.location.hash = 'dashboard';
     setUser(newUser);
     return newUser;
   };
@@ -49,8 +54,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleLogout = async (): Promise<void> => {
     try {
       await api.logout();
-    } finally {
       setUser(null);
+    } catch {
+      window.alert('Sign out failed. Check your connection and try again.');
     }
   };
 

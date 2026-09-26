@@ -79,7 +79,7 @@ export const TransferDetailModal: React.FC<TransferDetailModalProps> = ({
     setActionLoading(true);
     try {
       await api.validateTransfer(transfer.id, transfer.version);
-      showSuccess('Transfer validated! Stock moved atomically between locations.');
+      showSuccess('Transfer validated! Stock moved between locations.');
       await loadTransfer();
       onUpdated();
     } catch (err: any) {
@@ -254,7 +254,7 @@ export const TransferDetailModal: React.FC<TransferDetailModalProps> = ({
                   <div>
                     <h4 className="text-xs font-bold text-emerald-900">Transfer Validated & Completed</h4>
                     <p className="text-[11px] text-emerald-700 mt-0.5">
-                      Items were atomically deducted from source location and added to destination location on{' '}
+                      Items were deducted from source location and added to destination location on{' '}
                       {transfer.validatedAt ? new Date(transfer.validatedAt).toLocaleString() : 'validation'}.
                       Total system quantity is conserved.
                     </p>

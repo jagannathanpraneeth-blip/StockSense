@@ -20,7 +20,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   if (!product) return null;
 
   const totalStock = product.totalStock ?? 0;
-  const isLowStock = product.reorderThreshold > 0 && totalStock <= product.reorderThreshold;
+  const isLowStock = totalStock === 0 || (product.reorderThreshold > 0 && totalStock <= product.reorderThreshold);
 
   return (
     <Modal
@@ -87,13 +87,17 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   Total On-Hand Stock: {totalStock} {product.uom}
                 </span>
                 <Badge variant={isLowStock ? 'warning' : 'success'} size="sm">
-                  {isLowStock ? 'Low Stock / Reorder' : 'Adequate'}
+                  {totalStock === 0 ? 'Out of Stock' : isLowStock ? 'Low Stock' : 'Adequate'}
                 </Badge>
               </div>
               <p className="text-xs text-slate-600 mt-0.5">
                 {isLowStock
-                  ? `Stock is at or below reorder threshold of ${product.reorderThreshold} ${product.uom}.`
-                  : `Stock level meets or exceeds safe operational thresholds.`}
+                  ? `Reorder threshold is ${product.reorderThreshold} ${product.uom}. Shortage: ${
+                      product.shortage ?? Math.max(0, product.reorderThreshold - totalStock)
+                    } ${product.uom} | Suggested Replenishment: ${
+                      product.suggestedReplenishment ?? Math.max(0, product.reorderThreshold - totalStock)
+                    } ${product.uom}`
+                  : `Stock level meets or exceeds safe operational threshold (${product.reorderThreshold} ${product.uom}).`}
               </p>
             </div>
           </div>
@@ -113,7 +117,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             </span>
           </div>
 
-          <div className="border border-slate-200 rounded-xl overflow-hidden bg-white shadow-xs">
+          <div className="border border-slate-200 rounded-xl overflow-x-auto bg-white shadow-xs">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">

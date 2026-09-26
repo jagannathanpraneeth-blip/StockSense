@@ -32,6 +32,10 @@ export function errorHandler(
     });
   }
 
+  const code = (err as any).code;
+  if (code === 'P2002') return res.status(409).json({ success: false, message: 'This unique value already exists' });
+  if (code === 'P2003' || code === 'P2025') return res.status(409).json({ success: false, message: 'Record is missing or changed. Refresh and retry.' });
+  if (['P1008', 'P2028', 'P2034'].includes(code)) return res.status(409).json({ success: false, message: 'Another operation is updating inventory. Refresh and retry.' });
   console.error('Unhandled server error:', err);
   return res.status(500).json({
     success: false,

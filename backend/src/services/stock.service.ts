@@ -7,9 +7,11 @@
  * Quantity Precision Policy:
  *   All quantities are processed through roundQuantity() / addQuantities() /
  *   subtractQuantities() to enforce 4-decimal precision and prevent IEEE 754 drift.
- *   Safe-range check: quantities must not exceed Number.MAX_SAFE_INTEGER / 10000.
+ *   Quantity limit: 100,000,000; four decimal places.
  */
 
+import { randomUUID } from 'crypto';
+import { assertQuantity } from '../utils/quantity';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../utils/errors';
 import { roundQuantity, addQuantities, subtractQuantities } from '../utils/quantity';
@@ -20,6 +22,7 @@ const MAX_QTY = Number.MAX_SAFE_INTEGER / 10000; // ~9007 billion — prevents o
  * Throws if qty is outside the valid range [0, MAX_QTY].
  */
 export function assertSafeQuantity(qty: number, label = 'Quantity'): void {
+  assertQuantity(qty);
   if (!isFinite(qty) || isNaN(qty)) {
     throw new AppError(`${label} must be a finite number`, 400);
   }
@@ -41,13 +44,13 @@ export async function getOrCreateBalance(
   tx: TX,
   productId: string,
   locationId: string
-): Promise<{ id: string; quantity: number }> {
+): Promise<{ id: string; quantity: number; version: number }> {
   const record = await tx.stockBalance.upsert({
     where: { productId_locationId: { productId, locationId } },
     update: {},
     create: { productId, locationId, quantity: 0 },
   });
-  return { id: record.id, quantity: roundQuantity(record.quantity) };
+  return { id: record.id, quantity: roundQuantity(record.quantity), version: record.version };
 }
 
 /**
@@ -59,10 +62,12 @@ export async function addStock(
   locationId: string,
   qty: number
 ): Promise<number> {
-  const { id, quantity: current } = await getOrCreateBalance(tx, productId, locationId);
+  assertQuantity(qty);
+  const { id, quantity: current, version } = await getOrCreateBalance(tx, productId, locationId);
   const newQty = addQuantities(current, qty);
   assertSafeQuantity(newQty, 'Resulting balance');
-  await tx.stockBalance.update({ where: { id }, data: { quantity: newQty } });
+  const changed = await tx.stockBalance.updateMany({ where: { id, version }, data: { quantity: newQty, version: { increment: 1 } } });
+  if (changed.count !== 1) throw new AppError('Stock changed concurrently. Refresh and retry.', 409);
   return newQty;
 }
 
@@ -76,7 +81,8 @@ export async function deductStock(
   locationId: string,
   qty: number
 ): Promise<number> {
-  const { id, quantity: current } = await getOrCreateBalance(tx, productId, locationId);
+  assertQuantity(qty);
+  const { id, quantity: current, version } = await getOrCreateBalance(tx, productId, locationId);
   if (current < qty) {
     throw new AppError(
       `Insufficient stock for product at location. Available: ${current}, Requested: ${qty}`,
@@ -84,7 +90,8 @@ export async function deductStock(
     );
   }
   const newQty = subtractQuantities(current, qty);
-  await tx.stockBalance.update({ where: { id }, data: { quantity: newQty } });
+  const changed = await tx.stockBalance.updateMany({ where: { id, version }, data: { quantity: newQty, version: { increment: 1 } } });
+  if (changed.count !== 1) throw new AppError('Stock changed concurrently. Refresh and retry.', 409);
   return newQty;
 }
 
@@ -109,7 +116,7 @@ export async function writeLedger(
 }
 
 /**
- * Generates a unique sequential reference with collision guard.
+ * Generates a random document reference; the database enforces uniqueness.
  * Supports calling with (tx, type, prefix) or (type, prefix).
  */
 export async function generateReference(
@@ -117,7 +124,6 @@ export async function generateReference(
   typeOrPrefix?: string,
   maybePrefix?: string
 ): Promise<string> {
-  let client: any = prisma;
   let type: string;
   let prefix: string;
 
@@ -130,7 +136,6 @@ export async function generateReference(
       type === 'ADJUSTMENT' ? 'WH/ADJ' : 'WH/OP'
     );
   } else {
-    client = txOrType;
     type = typeOrPrefix!;
     prefix = maybePrefix || (
       type === 'RECEIPT' ? 'WH/IN' :
@@ -140,13 +145,10 @@ export async function generateReference(
     );
   }
 
-  const count = await client.operation.count({ where: { type } });
-  const seq = (count + 1).toString().padStart(4, '0');
-  const candidate = `${prefix}/${seq}`;
-  const existing = await client.operation.findUnique({ where: { reference: candidate } });
-  if (existing) {
-    // Collision: append last 5 digits of epoch ms
-    return `${prefix}/${seq}-${Date.now().toString().slice(-5)}`;
-  }
-  return candidate;
+  return `${prefix}/${randomUUID().slice(0, 12).toUpperCase()}`;
+}
+
+export async function claimOperation(tx: TX, id: string, type: string, status: string, version: number): Promise<void> {
+  const result = await tx.operation.updateMany({ where: { id, type, status, version }, data: { version: { increment: 1 } } });
+  if (result.count !== 1) throw new AppError('Operation changed or was already validated. Refresh and retry.', 409);
 }

@@ -2,10 +2,11 @@ import { Request, Response, NextFunction } from 'express';
 import { AppError } from '../utils/errors';
 import prisma from '../db/client';
 
-// Extend Express Session to include userId
+// Extend Express Session to include userId and sessionCreatedAt
 declare module 'express-session' {
   interface SessionData {
     userId: string;
+    sessionCreatedAt?: number;
   }
 }
 
@@ -44,6 +45,17 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
     if (!user.isActive) {
       req.session.destroy(() => {});
       return next(new AppError('Forbidden: User account is deactivated.', 403));
+    }
+
+    // Invalidate sessions created before a password reset
+    if (
+      user.passwordChangedAt &&
+      (req.session.sessionCreatedAt || 0) <= new Date(user.passwordChangedAt).getTime()
+    ) {
+      req.session.destroy(() => {});
+      return next(
+        new AppError('Unauthorized: Password was recently reset. Please log in again.', 401)
+      );
     }
 
     const { passwordHash, ...userWithoutPassword } = user;

@@ -4,8 +4,8 @@ import prisma from '../db/client';
 import { ConflictError, NotFoundError } from '../utils/errors';
 
 const warehouseSchema = z.object({
-  name: z.string().min(1, 'Warehouse name is required').max(100),
-  code: z.string().min(1, 'Warehouse code is required').max(20).toUpperCase(),
+  name: z.string().trim().min(1, 'Warehouse name is required').max(100),
+  code: z.string().trim().min(1, 'Warehouse code is required').max(20).toUpperCase(),
   address: z.string().max(255).optional().nullable(),
   isActive: z.boolean().optional().default(true),
 });

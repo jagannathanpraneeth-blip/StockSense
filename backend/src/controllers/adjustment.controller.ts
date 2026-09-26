@@ -1,3 +1,6 @@
+import { checkOperationInput } from '../services/operation-input';
+import { claimOperation } from '../services/stock.service';
+import { assertQuantity } from '../utils/quantity';
 /**
  * Adjustment Controller — WH/ADJ operations.
  *
@@ -33,11 +36,11 @@ import {
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
 const createSchema = z.object({
-  productId: z.string().min(1, 'Product is required'),
-  locationId: z.string().min(1, 'Location is required'),
+  productId: z.string().trim().min(1, 'Product is required'),
+  locationId: z.string().trim().min(1, 'Location is required'),
   countedQty: z.number().min(0, 'Counted quantity cannot be negative'),
   // reason is stored in notes on the operation
-  reason: z.string().min(3, 'A reason of at least 3 characters is required'),
+  reason: z.string().trim().min(3, 'A reason of at least 3 characters is required'),
 });
 
 const validateSchema = z.object({
@@ -90,6 +93,8 @@ export const getAdjustment = async (req: Request, res: Response, next: NextFunct
 export const createAdjustment = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = createSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
     assertSafeQuantity(data.countedQty, 'Counted quantity');
 
     const [product, location] = await Promise.all([
@@ -101,7 +106,7 @@ export const createAdjustment = async (req: Request, res: Response, next: NextFu
 
     const result = await prisma.$transaction(async (tx) => {
       // Record current balance as snapshot
-      const { quantity: currentBalance } = await getOrCreateBalance(tx, data.productId, data.locationId);
+      const { quantity: currentBalance, version: balanceVersion } = await getOrCreateBalance(tx, data.productId, data.locationId);
 
       const reference = await generateReference(tx, 'ADJUSTMENT', 'WH/ADJ');
       const op = await tx.operation.create({
@@ -122,6 +127,7 @@ export const createAdjustment = async (req: Request, res: Response, next: NextFu
           demandQty: roundQuantity(currentBalance),  // system recorded qty
           doneQty: roundQuantity(data.countedQty),   // physical counted qty
           destLocationId: data.locationId,
+          balanceVersionSnapshot: balanceVersion,
           balanceSnapshot: roundQuantity(currentBalance), // stale-count sentinel
         },
       });
@@ -149,6 +155,8 @@ export const validateAdjustment = async (req: Request, res: Response, next: Next
     const result = await prisma.$transaction(async (tx) => {
       const adjustment = await tx.operation.findUnique({ where: { id }, include: { lines: true } });
       if (!adjustment || adjustment.type !== 'ADJUSTMENT') throw new NotFoundError('Adjustment not found');
+      await claimOperation(tx, id, adjustment.type, adjustment.status, version);
+      await checkOperationInput(adjustment, tx);
       if (adjustment.status === 'DONE') throw new AppError('Adjustment is already validated', 400);
       if (adjustment.status !== 'DRAFT') throw new AppError('Only DRAFT adjustments can be validated', 400);
       if (adjustment.version !== version) throw new ConflictError('Adjustment was modified concurrently. Refresh and retry.');
@@ -160,9 +168,9 @@ export const validateAdjustment = async (req: Request, res: Response, next: Next
       const snapshot = line.balanceSnapshot !== null ? roundQuantity(line.balanceSnapshot!) : null;
 
       // Stale count check: compare live balance to stored snapshot
-      const { quantity: liveBalance } = await getOrCreateBalance(tx, line.productId, adjustment.destLocationId);
+      const { quantity: liveBalance, version: liveVersion } = await getOrCreateBalance(tx, line.productId, adjustment.destLocationId);
 
-      if (snapshot !== null && liveBalance !== snapshot) {
+      if (line.balanceVersionSnapshot === null || line.balanceVersionSnapshot !== liveVersion || (snapshot !== null && liveBalance !== snapshot)) {
         throw new ConflictError(
           `The stock balance for this product has changed since you started counting. ` +
           `Snapshot: ${snapshot}, Current: ${liveBalance}. Please recount and create a new adjustment.`
@@ -191,8 +199,8 @@ export const validateAdjustment = async (req: Request, res: Response, next: Next
         create: { productId: line.productId, locationId: adjustment.destLocationId, quantity: 0 },
       });
       await tx.stockBalance.update({
-        where: { id: balanceRecord.id },
-        data: { quantity: newBalance },
+        where: { id: balanceRecord.id, version: liveVersion },
+        data: { quantity: newBalance, version: { increment: 1 } },
       });
 
       // Signed ledger entry
@@ -233,3 +241,10 @@ export const cancelAdjustment = async (req: Request, res: Response, next: NextFu
     res.json({ success: true, data: updated });
   } catch (e) { next(e); }
 };
+
+function checkQuantities(body: any): void {
+  for (const key of ['demandQty', 'doneQty', 'countedQty', 'initialStock', 'reorderThreshold']) {
+    if (body[key] !== undefined) assertQuantity(body[key]);
+  }
+  if (Array.isArray(body.lines)) body.lines.forEach(checkQuantities);
+}

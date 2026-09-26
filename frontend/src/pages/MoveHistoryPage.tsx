@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   History,
   Search,
@@ -19,6 +19,10 @@ export const MoveHistoryPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [page, setPage] = useState(0);
+  const [meta, setMeta] = useState({ total: 0, hasMore: false });
+  const requestId = useRef(0);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -45,6 +49,7 @@ export const MoveHistoryPage: React.FC = () => {
   }, []);
 
   const fetchLedger = useCallback(async () => {
+    const id = ++requestId.current;
     setLoading(true);
     try {
       const data = await api.getLedgerEntries({
@@ -52,16 +57,17 @@ export const MoveHistoryPage: React.FC = () => {
         referenceType: typeFilter !== 'ALL' ? typeFilter : undefined,
         productId: selectedProductId || undefined,
         locationId: selectedLocationId || undefined,
-        dateFrom: dateFrom || undefined,
-        dateTo: dateTo || undefined,
+        dateFrom: dateFrom ? new Date(`${dateFrom}T00:00:00`).toISOString() : undefined,
+        dateTo: dateTo ? new Date(`${dateTo}T23:59:59.999`).toISOString() : undefined,
+        offset: page * 50,
       });
-      setEntries(data);
+      if (id === requestId.current) { setEntries(data.data); setMeta(data.meta); }
     } catch (err: any) {
-      showError(err.message || 'Failed to load stock movements');
+      if (id === requestId.current) showError(err.message || 'Failed to load stock movements');
     } finally {
-      setLoading(false);
+      if (id === requestId.current) setLoading(false);
     }
-  }, [searchQuery, typeFilter, selectedProductId, selectedLocationId, dateFrom, dateTo, showError]);
+  }, [searchQuery, typeFilter, selectedProductId, selectedLocationId, dateFrom, dateTo, page, showError]);
 
   useEffect(() => {
     fetchLedger();
@@ -99,11 +105,11 @@ export const MoveHistoryPage: React.FC = () => {
               Stock Ledger & Move History
             </h1>
             <span className="px-2 py-0.5 text-xs font-bold bg-purple-100 text-purple-700 rounded-full">
-              {entries.length} Ledger Records
+              {meta.total} Ledger Records
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-1">
-            Immutable audit trail of all receipts, deliveries, internal transfers, and physical count reconciliations.
+            Stock movement history of all receipts, deliveries, internal transfers, and physical count reconciliations.
           </p>
         </div>
 
@@ -120,7 +126,7 @@ export const MoveHistoryPage: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Transactions</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Records on this page</p>
             <p className="text-2xl font-bold text-slate-900 mt-1">{totalMoves}</p>
           </div>
           <div className="w-11 h-11 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
@@ -130,7 +136,7 @@ export const MoveHistoryPage: React.FC = () => {
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Receipt Inflows</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Receipts on this page</p>
             <p className="text-2xl font-bold text-emerald-600 mt-1">{receiptsCount}</p>
           </div>
           <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
@@ -140,7 +146,7 @@ export const MoveHistoryPage: React.FC = () => {
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Delivery Outflows</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Deliveries on this page</p>
             <p className="text-2xl font-bold text-purple-600 mt-1">{deliveriesCount}</p>
           </div>
           <div className="w-11 h-11 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
@@ -150,7 +156,7 @@ export const MoveHistoryPage: React.FC = () => {
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Transfers & Adjustments</p>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Other records on this page</p>
             <p className="text-2xl font-bold text-indigo-600 mt-1">{transfersCount + adjustmentsCount}</p>
           </div>
           <div className="w-11 h-11 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -167,7 +173,7 @@ export const MoveHistoryPage: React.FC = () => {
             {['ALL', 'RECEIPT', 'DELIVERY', 'INTERNAL_TRANSFER', 'ADJUSTMENT'].map((tab) => (
               <button
                 key={tab}
-                onClick={() => setTypeFilter(tab)}
+                onClick={() => { setPage(0); setTypeFilter(tab); }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all shrink-0 ${
                   typeFilter === tab
                     ? 'bg-white text-purple-700 shadow-xs font-bold'
@@ -188,7 +194,7 @@ export const MoveHistoryPage: React.FC = () => {
               type="text"
               placeholder="Search reference doc, notes..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setPage(0); setSearchQuery(e.target.value); }}
               className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all"
             />
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2" />
@@ -203,7 +209,7 @@ export const MoveHistoryPage: React.FC = () => {
             </label>
             <select
               value={selectedProductId}
-              onChange={(e) => setSelectedProductId(e.target.value)}
+              onChange={(e) => { setPage(0); setSelectedProductId(e.target.value); }}
               className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
             >
               <option value="">All Products</option>
@@ -221,7 +227,7 @@ export const MoveHistoryPage: React.FC = () => {
             </label>
             <select
               value={selectedLocationId}
-              onChange={(e) => setSelectedLocationId(e.target.value)}
+              onChange={(e) => { setPage(0); setSelectedLocationId(e.target.value); }}
               className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
             >
               <option value="">All Locations</option>
@@ -240,7 +246,7 @@ export const MoveHistoryPage: React.FC = () => {
             <input
               type="date"
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              onChange={(e) => { setPage(0); setDateFrom(e.target.value); }}
               className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
             />
           </div>
@@ -252,13 +258,20 @@ export const MoveHistoryPage: React.FC = () => {
             <input
               type="date"
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
+              onChange={(e) => { setPage(0); setDateTo(e.target.value); }}
               className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
             />
           </div>
         </div>
       </div>
 
+      <div className="flex items-center justify-between text-sm">
+        <span>{meta.total ? page * 50 + 1 : 0}–{Math.min(page * 50 + entries.length, meta.total)} of {meta.total} matching records</span>
+        <div className="flex gap-4">
+          <button disabled={loading || page === 0} className="disabled:opacity-40" onClick={() => setPage(p => p - 1)}>Previous page</button>
+          <button disabled={loading || !meta.hasMore} className="disabled:opacity-40" onClick={() => setPage(p => p + 1)}>Next page</button>
+        </div>
+      </div>
       {/* Ledger Table */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         {loading && entries.length === 0 ? (
@@ -334,7 +347,7 @@ export const MoveHistoryPage: React.FC = () => {
                       <span className="text-[10px] text-slate-400 font-sans">{entry.product?.uom}</span>
                     </td>
                     <td className="py-3.5 px-4 text-slate-500 max-w-[200px] truncate">
-                      {entry.notes || (entry.actor?.name ? `By ${entry.actor.name}` : '—')}
+                      <div>{entry.actor?.name || 'Unknown operator'}</div><div title={entry.notes || ''}>{entry.notes || '—'}</div>
                     </td>
                   </tr>
                 ))}

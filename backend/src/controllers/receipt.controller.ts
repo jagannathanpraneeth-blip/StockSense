@@ -1,3 +1,7 @@
+import { checkOperationInput } from '../services/operation-input';
+import { generateReference, addStock } from '../services/stock.service';
+import { claimOperation } from '../services/stock.service';
+import { assertQuantity } from '../utils/quantity';
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import prisma from '../db/client';
@@ -7,14 +11,14 @@ import { roundQuantity, addQuantities, isValidQuantity } from '../utils/quantity
 // --- Schemas ---
 
 const receiptLineInputSchema = z.object({
-  productId: z.string().min(1, 'Product is required'),
+  productId: z.string().trim().min(1, 'Product is required'),
   demandQty: z.number().positive('Demand quantity must be greater than 0'),
   doneQty: z.number().min(0, 'Done quantity cannot be negative').optional().default(0),
 });
 
 const createReceiptSchema = z.object({
-  partner: z.string().min(1, 'Partner (Supplier) is required'),
-  destLocationId: z.string().min(1, 'Destination Location is required'),
+  partner: z.string().trim().min(1, 'Partner (Supplier) is required'),
+  destLocationId: z.string().trim().min(1, 'Destination Location is required'),
   expectedDate: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   lines: z.array(receiptLineInputSchema).optional().default([]),
@@ -29,7 +33,7 @@ const updateReceiptSchema = z.object({
 });
 
 const addLineSchema = z.object({
-  productId: z.string().min(1, 'Product is required'),
+  productId: z.string().trim().min(1, 'Product is required'),
   demandQty: z.number().positive('Demand quantity must be greater than 0'),
   doneQty: z.number().min(0, 'Done quantity cannot be negative').optional().default(0),
 });
@@ -41,17 +45,7 @@ const updateLineSchema = z.object({
 
 // Helper to generate reference WH/IN/XXXX
 async function generateReceiptReference(): Promise<string> {
-  const count = await prisma.operation.count({ where: { type: 'RECEIPT' } });
-  const seq = (count + 1).toString().padStart(4, '0');
-  const ref = `WH/IN/${seq}`;
-  
-  // Verify reference doesn't collide
-  const existing = await prisma.operation.findUnique({ where: { reference: ref } });
-  if (existing) {
-    const timestamp = Date.now().toString().slice(-4);
-    return `WH/IN/${seq}-${timestamp}`;
-  }
-  return ref;
+  return generateReference('RECEIPT', 'WH/IN');
 }
 
 // --- Controllers ---
@@ -138,6 +132,8 @@ export const getReceipt = async (req: Request, res: Response, next: NextFunction
 export const createReceipt = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = createReceiptSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
     
     // Verify destination location exists
     const destLoc = await prisma.location.findUnique({ where: { id: data.destLocationId } });
@@ -199,6 +195,8 @@ export const updateReceipt = async (req: Request, res: Response, next: NextFunct
   try {
     const { id } = req.params;
     const data = updateReceiptSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
 
     const existing = await prisma.operation.findUnique({ where: { id } });
     if (!existing || existing.type !== 'RECEIPT') throw new NotFoundError('Receipt not found');
@@ -244,6 +242,8 @@ export const addLine = async (req: Request, res: Response, next: NextFunction) =
   try {
     const { id } = req.params;
     const data = addLineSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
     
     const existing = await prisma.operation.findUnique({ where: { id } });
     if (!existing || existing.type !== 'RECEIPT') throw new NotFoundError('Receipt not found');
@@ -269,6 +269,7 @@ export const addLine = async (req: Request, res: Response, next: NextFunction) =
       },
     });
 
+    await prisma.operation.update({ where: { id }, data: { version: { increment: 1 } } });
     res.status(201).json({ success: true, data: line });
   } catch (error) {
     next(error);
@@ -279,6 +280,8 @@ export const updateLine = async (req: Request, res: Response, next: NextFunction
   try {
     const { id, lineId } = req.params;
     const data = updateLineSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
 
     const operation = await prisma.operation.findUnique({ where: { id } });
     if (!operation || operation.type !== 'RECEIPT') throw new NotFoundError('Receipt not found');
@@ -301,6 +304,7 @@ export const updateLine = async (req: Request, res: Response, next: NextFunction
       },
     });
 
+    await prisma.operation.update({ where: { id }, data: { version: { increment: 1 } } });
     res.status(200).json({ success: true, data: line });
   } catch (error) {
     next(error);
@@ -319,6 +323,7 @@ export const deleteLine = async (req: Request, res: Response, next: NextFunction
       where: { id: lineId, operationId: id },
     });
 
+    await prisma.operation.update({ where: { id }, data: { version: { increment: 1 } } });
     res.status(200).json({ success: true, message: 'Line deleted' });
   } catch (error) {
     next(error);
@@ -336,6 +341,7 @@ export const setAllDone = async (req: Request, res: Response, next: NextFunction
     if (operation.status !== 'DRAFT') throw new AppError('Can only modify DRAFT receipts', 400);
 
     await prisma.$transaction(async (tx) => {
+      await tx.operation.update({ where: { id }, data: { version: { increment: 1 } } });
       for (const line of operation.lines) {
         await tx.operationLine.update({
           where: { id: line.id },
@@ -365,7 +371,7 @@ export const setAllDone = async (req: Request, res: Response, next: NextFunction
 export const validateReceipt = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { version, autoSetDoneIfZero } = req.body;
+    const { version, autoSetDoneIfZero } = z.object({ version: z.number().int().min(0), autoSetDoneIfZero: z.boolean().optional().default(false) }).parse(req.body);
 
     if (version === undefined || typeof version !== 'number') {
       throw new AppError('Version number is required for concurrency control', 400);
@@ -379,6 +385,8 @@ export const validateReceipt = async (req: Request, res: Response, next: NextFun
       });
 
       if (!receipt || receipt.type !== 'RECEIPT') throw new NotFoundError('Receipt not found');
+      await claimOperation(tx, id, receipt.type, receipt.status, version);
+      await checkOperationInput(receipt, tx);
       if (receipt.status === 'DONE') throw new AppError('Receipt is already validated', 400);
       if (receipt.status !== 'DRAFT') throw new AppError('Receipt cannot be validated from current state', 400);
       if (receipt.version !== version) {
@@ -421,30 +429,7 @@ export const validateReceipt = async (req: Request, res: Response, next: NextFun
         
         if (qtyToReceive <= 0) continue; // Skip lines with zero done qty
 
-        // 1. Get or create stock balance for product at destLocation
-        const balanceRecord = await tx.stockBalance.upsert({
-          where: {
-            productId_locationId: {
-              productId: line.productId,
-              locationId: receipt.destLocationId,
-            },
-          },
-          update: {},
-          create: {
-            productId: line.productId,
-            locationId: receipt.destLocationId,
-            quantity: 0,
-          },
-        });
-
-        const currentQty = roundQuantity(balanceRecord.quantity);
-        const newQty = addQuantities(currentQty, qtyToReceive);
-
-        // 2. Update stock balance
-        await tx.stockBalance.update({
-          where: { id: balanceRecord.id },
-          data: { quantity: newQty },
-        });
+        const newQty = await addStock(tx, line.productId, receipt.destLocationId, qtyToReceive);
 
         // 3. Create Stock Ledger entry
         await tx.stockLedger.create({
@@ -491,4 +476,19 @@ export const validateReceipt = async (req: Request, res: Response, next: NextFun
   } catch (error) {
     next(error);
   }
+};
+
+function checkQuantities(body: any): void {
+  for (const key of ['demandQty', 'doneQty', 'countedQty', 'initialStock', 'reorderThreshold']) {
+    if (body[key] !== undefined) assertQuantity(body[key]);
+  }
+  if (Array.isArray(body.lines)) body.lines.forEach(checkQuantities);
+}
+
+export const cancelReceipt = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const changed = await prisma.operation.updateMany({ where: { id: req.params.id, type: 'RECEIPT', status: { in: ['DRAFT','WAITING','READY'] } }, data: { status: 'CANCELED', version: { increment: 1 } } });
+    if (changed.count !== 1) throw new ConflictError('Receipt cannot be canceled. Refresh and retry.');
+    res.json({ success: true, data: await prisma.operation.findUnique({ where: { id: req.params.id } }) });
+  } catch (e) { next(e); }
 };

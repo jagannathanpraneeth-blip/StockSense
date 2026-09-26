@@ -1,3 +1,6 @@
+import { checkOperationInput } from '../services/operation-input';
+import { claimOperation } from '../services/stock.service';
+import { assertQuantity } from '../utils/quantity';
 /**
  * Internal Transfer Controller — WH/INT operations.
  *
@@ -32,13 +35,13 @@ import {
 // ─── Schemas ────────────────────────────────────────────────────────────────
 
 const lineInputSchema = z.object({
-  productId: z.string().min(1, 'Product is required'),
+  productId: z.string().trim().min(1, 'Product is required'),
   demandQty: z.number().positive('Demand quantity must be positive'),
 });
 
 const createSchema = z.object({
-  sourceLocationId: z.string().min(1, 'Source location is required'),
-  destLocationId: z.string().min(1, 'Destination location is required'),
+  sourceLocationId: z.string().trim().min(1, 'Source location is required'),
+  destLocationId: z.string().trim().min(1, 'Destination location is required'),
   expectedDate: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   lines: z.array(lineInputSchema).min(1, 'At least one product line is required'),
@@ -104,6 +107,8 @@ export const getTransfer = async (req: Request, res: Response, next: NextFunctio
 export const createTransfer = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = createSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
 
     if (data.sourceLocationId === data.destLocationId) {
       throw new AppError('Source and destination locations must be different', 400);
@@ -154,12 +159,14 @@ export const updateTransfer = async (req: Request, res: Response, next: NextFunc
   try {
     const { id } = req.params;
     const data = updateSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
     const existing = await prisma.operation.findUnique({ where: { id } });
     if (!existing || existing.type !== 'INTERNAL_TRANSFER') throw new NotFoundError('Transfer not found');
     if (existing.status !== 'DRAFT') throw new AppError('Only DRAFT transfers can be updated', 400);
     if (existing.version !== data.version) throw new ConflictError('Transfer was modified concurrently. Refresh and retry.');
 
-    if (data.sourceLocationId && data.destLocationId && data.sourceLocationId === data.destLocationId) {
+    if ((data.sourceLocationId || existing.sourceLocationId) === (data.destLocationId || existing.destLocationId)) {
       throw new AppError('Source and destination must be different', 400);
     }
 
@@ -182,6 +189,8 @@ export const addLine = async (req: Request, res: Response, next: NextFunction) =
   try {
     const { id } = req.params;
     const data = lineInputSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
     const op = await prisma.operation.findUnique({ where: { id } });
     if (!op || op.type !== 'INTERNAL_TRANSFER') throw new NotFoundError('Transfer not found');
     if (op.status !== 'DRAFT') throw new AppError('Lines can only be added to DRAFT transfers', 400);
@@ -199,6 +208,7 @@ export const addLine = async (req: Request, res: Response, next: NextFunction) =
       },
       include: { product: { select: { id: true, name: true, sku: true, uom: true } } },
     });
+    await prisma.operation.update({ where: { id }, data: { version: { increment: 1 } } });
     res.status(201).json({ success: true, data: line });
   } catch (e) { next(e); }
 };
@@ -207,6 +217,8 @@ export const updateLine = async (req: Request, res: Response, next: NextFunction
   try {
     const { id, lineId } = req.params;
     const data = lineUpdateSchema.parse(req.body);
+    checkQuantities(req.body);
+    await checkOperationInput(req.body);
     const op = await prisma.operation.findUnique({ where: { id } });
     if (!op || op.type !== 'INTERNAL_TRANSFER') throw new NotFoundError('Transfer not found');
     if (op.status !== 'DRAFT') throw new AppError('Cannot edit lines on a non-draft transfer', 400);
@@ -218,6 +230,7 @@ export const updateLine = async (req: Request, res: Response, next: NextFunction
       data: { ...(data.demandQty !== undefined && { demandQty: roundQuantity(data.demandQty) }) },
       include: { product: { select: { id: true, name: true, sku: true, uom: true } } },
     });
+    await prisma.operation.update({ where: { id }, data: { version: { increment: 1 } } });
     res.json({ success: true, data: line });
   } catch (e) { next(e); }
 };
@@ -229,6 +242,7 @@ export const deleteLine = async (req: Request, res: Response, next: NextFunction
     if (!op || op.type !== 'INTERNAL_TRANSFER') throw new NotFoundError('Transfer not found');
     if (op.status !== 'DRAFT') throw new AppError('Lines can only be deleted from DRAFT transfers', 400);
     await prisma.operationLine.deleteMany({ where: { id: lineId, operationId: id } });
+    await prisma.operation.update({ where: { id }, data: { version: { increment: 1 } } });
     res.json({ success: true, message: 'Line deleted' });
   } catch (e) { next(e); }
 };
@@ -247,6 +261,8 @@ export const validateTransfer = async (req: Request, res: Response, next: NextFu
     const result = await prisma.$transaction(async (tx) => {
       const transfer = await tx.operation.findUnique({ where: { id }, include: { lines: true } });
       if (!transfer || transfer.type !== 'INTERNAL_TRANSFER') throw new NotFoundError('Transfer not found');
+      await claimOperation(tx, id, transfer.type, transfer.status, version);
+      await checkOperationInput(transfer, tx);
       if (transfer.status === 'DONE') throw new AppError('Transfer is already validated', 400);
       if (transfer.status !== 'DRAFT') throw new AppError('Only DRAFT transfers can be validated', 400);
       if (transfer.version !== version) throw new ConflictError('Transfer was modified concurrently. Refresh and retry.');
@@ -337,3 +353,10 @@ export const cancelTransfer = async (req: Request, res: Response, next: NextFunc
     res.json({ success: true, data: updated });
   } catch (e) { next(e); }
 };
+
+function checkQuantities(body: any): void {
+  for (const key of ['demandQty', 'doneQty', 'countedQty', 'initialStock', 'reorderThreshold']) {
+    if (body[key] !== undefined) assertQuantity(body[key]);
+  }
+  if (Array.isArray(body.lines)) body.lines.forEach(checkQuantities);
+}

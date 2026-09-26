@@ -17,7 +17,9 @@ const router = Router();
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20, // limit each IP to 20 requests per windowMs
-  message: 'Too many auth requests from this IP, please try again later.',
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many authentication requests. Please wait 15 minutes before trying again.' },
 });
 
 router.post('/signup', authLimiter, signup);

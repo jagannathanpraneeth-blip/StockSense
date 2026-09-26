@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ToastProvider } from './components/common/Toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppLayout } from './components/layout/AppLayout';
@@ -17,7 +17,21 @@ import { Boxes, RefreshCw } from 'lucide-react';
 
 const AppContent: React.FC = () => {
   const { user, loading } = useAuth();
-  const [activePage, setActivePage] = useState<ActivePage>('products');
+  const validPages = ['dashboard','products','receipts','deliveries','transfers','adjustments','history','settings','profile'];
+  const [activePage, setActivePage] = useState<ActivePage>('dashboard');
+  const navigate = useCallback((page: ActivePage) => {
+    setActivePage(page);
+    window.location.hash = page;
+  }, []);
+  useEffect(() => {
+    const sync = () => {
+      const page = window.location.hash.slice(1);
+      setActivePage(validPages.includes(page) ? page as ActivePage : 'dashboard');
+    };
+    sync();
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, []);
 
   if (loading) {
     return (
@@ -40,7 +54,7 @@ const AppContent: React.FC = () => {
   const renderContent = () => {
     switch (activePage) {
       case 'dashboard':
-        return <DashboardPage onNavigate={setActivePage} />;
+        return <DashboardPage onNavigate={navigate} />;
       case 'products':
         return <ProductsPage />;
       case 'receipts':
@@ -63,7 +77,7 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <AppLayout activePage={activePage} onNavigate={setActivePage}>
+    <AppLayout activePage={activePage} onNavigate={navigate}>
       {renderContent()}
     </AppLayout>
   );

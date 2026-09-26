@@ -1,10 +1,5 @@
-// StockSense Prisma Schema
-// Database specification for modular Inventory Management System (IMS)
-// Quantity Precision Policy:
-// All quantities are stored as Float with a 4-decimal place precision standard (0.0001).
-// Business logic in src/utils/quantity.ts enforces rounding and validation to eliminate floating-point drift.
-// Stored quantities use scaled-integer arithmetic via quantity helpers to avoid floating-point drift.
-// The Float Prisma type is used (SQLite stores as IEEE 754 REAL); all reads go through roundQuantity() before use.
+// Quantities are stored as SQLite REAL, with four-decimal bounded arithmetic.
+// This is not integer database storage.
 
 generator client {
   provider = "prisma-client-js"
@@ -20,10 +15,11 @@ model User {
   email        String        @unique
   name         String
   role         String        @default("WAREHOUSE_STAFF") // ADMIN, INVENTORY_MANAGER, WAREHOUSE_STAFF
-  passwordHash String?
-  isActive     Boolean       @default(true)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  passwordHash       String?
+  passwordChangedAt  DateTime?
+  isActive           Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
 
   operations    Operation[]   @relation("UserOperations")
   ledgerEntries StockLedger[] @relation("UserLedger")
@@ -104,6 +100,7 @@ model Product {
 }
 
 model StockBalance {
+  version    Int @default(0)
   id         String   @id @default(uuid())
   productId  String
   product    Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
@@ -154,6 +151,7 @@ model OperationLine {
   destLocation     Location? @relation("DestLineLocations", fields: [destLocationId], references: [id], onDelete: Restrict)
   notes            String?
   // ADJUSTMENT only: balance at count initiation. Validation rejects stale counts.
+  balanceVersionSnapshot Int?
   balanceSnapshot  Float?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

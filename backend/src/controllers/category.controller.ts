@@ -4,7 +4,7 @@ import prisma from '../db/client';
 import { ConflictError } from '../utils/errors';
 
 const categorySchema = z.object({
-  name: z.string().min(1, 'Category name is required').max(100),
+  name: z.string().trim().min(1, 'Category name is required').max(100),
   description: z.string().max(255).optional().nullable(),
 });
 

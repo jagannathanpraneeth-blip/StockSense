@@ -13,7 +13,12 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
-    "db:setup": "prisma migrate dev --name init && tsx prisma/seed.ts"
+    "create:manager": "tsx src/scripts/create-manager.ts",
+    "test:stage4": "node scripts/test-review.cjs",
+    "db:setup": "prisma migrate dev --name init && tsx prisma/seed.ts",
+    "db:upgrade": "node scripts/upgrade-db.cjs",
+    "prisma:deploy": "prisma migrate deploy",
+    "test:review": "node scripts/test-review.cjs"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

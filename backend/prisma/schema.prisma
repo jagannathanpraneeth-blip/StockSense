@@ -153,6 +153,8 @@ model OperationLine {
   destLocationId   String?
   destLocation     Location? @relation("DestLineLocations", fields: [destLocationId], references: [id], onDelete: Restrict)
   notes            String?
+  // ADJUSTMENT only: balance at count initiation. Validation rejects stale counts.
+  balanceSnapshot  Float?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 }

@@ -13,9 +13,7 @@ export interface Category {
   description?: string | null;
   createdAt: string;
   updatedAt: string;
-  _count?: {
-    products: number;
-  };
+  _count?: { products: number };
 }
 
 export interface Warehouse {
@@ -26,9 +24,7 @@ export interface Warehouse {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
-  _count?: {
-    locations: number;
-  };
+  _count?: { locations: number };
   locations?: Location[];
 }
 
@@ -37,18 +33,12 @@ export interface Location {
   name: string;
   code: string;
   warehouseId: string;
-  warehouse?: {
-    id: string;
-    name: string;
-    code: string;
-  };
+  warehouse?: { id: string; name: string; code: string };
   isScrap: boolean;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
-  _count?: {
-    stockBalances: number;
-  };
+  _count?: { stockBalances: number };
   stockBalances?: StockBalance[];
 }
 
@@ -75,6 +65,7 @@ export interface Product {
   totalStock?: number;
   isLowStock?: boolean;
   stockBalances?: StockBalance[];
+  balances?: StockBalance[];
   createdAt: string;
   updatedAt: string;
 }
@@ -88,6 +79,7 @@ export interface OperationLine {
   doneQty: number;
   destLocationId?: string | null;
   sourceLocationId?: string | null;
+  balanceSnapshot?: number | null;
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -112,9 +104,7 @@ export interface Operation {
   createdAt: string;
   updatedAt: string;
   lines?: OperationLine[];
-  _count?: {
-    lines: number;
-  };
+  _count?: { lines: number };
 }
 
 export interface StockLedger {
@@ -133,6 +123,19 @@ export interface StockLedger {
   actor?: User | null;
   notes?: string | null;
   createdAt: string;
+}
+
+export interface DashboardStats {
+  products: { total: number; inStock: number; lowStock: number };
+  operations: {
+    receipts: { total: number; thisWeek: number };
+    deliveries: { total: number; pending: number };
+    transfers: { total: number; pending: number };
+    adjustments: { total: number; pending: number };
+  };
+  warehouses: number;
+  ledgerMoves: number;
+  recentMoves: StockLedger[];
 }
 
 export interface ApiResponse<T> {

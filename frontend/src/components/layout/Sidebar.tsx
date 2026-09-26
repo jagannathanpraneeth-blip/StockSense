@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 export type ActivePage =
   | 'dashboard'
@@ -37,14 +38,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   mobileOpen,
   onCloseMobile,
 }) => {
+  const { user, logout } = useAuth();
+
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, stage: 'Stage 2' },
-    { id: 'products', label: 'Products', icon: Boxes, isWorking: true },
-    { id: 'receipts', label: 'Receipts', icon: ArrowDownToLine, stage: 'Stage 2' },
-    { id: 'deliveries', label: 'Delivery Orders', icon: ArrowUpFromLine, stage: 'Stage 2' },
-    { id: 'transfers', label: 'Internal Transfers', icon: ArrowLeftRight, stage: 'Stage 2' },
-    { id: 'adjustments', label: 'Adjustments', icon: SlidersHorizontal, stage: 'Stage 2' },
-    { id: 'history', label: 'Move History', icon: History, stage: 'Stage 2' },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, stage: 'Stage 3' },
+    { id: 'products', label: 'Products & Stock', icon: Boxes, isWorking: true },
+    { id: 'receipts', label: 'Incoming Receipts', icon: ArrowDownToLine, isWorking: true },
+    { id: 'deliveries', label: 'Delivery Orders', icon: ArrowUpFromLine, stage: 'Stage 3' },
+    { id: 'transfers', label: 'Internal Transfers', icon: ArrowLeftRight, stage: 'Stage 3' },
+    { id: 'adjustments', label: 'Adjustments', icon: SlidersHorizontal, stage: 'Stage 3' },
+    { id: 'history', label: 'Move History', icon: History, isWorking: true },
     { id: 'settings', label: 'Warehouse Settings', icon: Settings, isWorking: true },
   ];
 
@@ -52,6 +55,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onNavigate(id);
     onCloseMobile();
   };
+
+  const userInitials = user?.name
+    ? user.name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2)
+    : 'U';
 
   return (
     <>
@@ -72,14 +84,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Brand Header */}
         <div className="flex items-center justify-between h-16 px-5 border-b border-slate-100 bg-white">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-brand-600 text-white flex items-center justify-center shadow-md shadow-brand-500/20">
+            <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-md shadow-purple-500/20">
               <Boxes className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-base tracking-tight text-slate-900">StockSense</span>
-                <span className="px-1.5 py-0.2 text-[10px] font-bold uppercase tracking-wider bg-brand-50 text-brand-700 rounded border border-brand-200">
-                  v1.0
+                <span className="px-1.5 py-0.2 text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 rounded border border-purple-200">
+                  Stage 2
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 font-medium">Modular IMS • Odoo</p>
@@ -121,10 +133,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <span>{item.label}</span>
                 </div>
                 {item.isWorking ? (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Active in Stage 1" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="Active" />
                 ) : (
                   <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-400">
-                    Stage 2
+                    {item.stage}
                   </span>
                 )}
               </button>
@@ -141,24 +153,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
           >
             <div className="w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-semibold text-xs border border-purple-200 shrink-0">
-              AM
+              {userInitials}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-slate-800 truncate">Alex Morgan</p>
+              <p className="text-xs font-semibold text-slate-800 truncate">{user?.name || 'User'}</p>
               <div className="flex items-center gap-1 text-[11px] text-slate-500">
                 <ShieldCheck className="w-3 h-3 text-purple-600 shrink-0" />
-                <span className="truncate">Manager (Local)</span>
+                <span className="truncate">{user?.role?.replace('_', ' ') || 'Authenticated'}</span>
               </div>
             </div>
           </div>
 
           <button
-            onClick={() => alert('Authentication & session management will be activated in Stage 2. Currently running in local single-user mode.')}
-            className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 rounded-md transition-colors"
-            title="Local development mode - Auth pending"
+            onClick={logout}
+            className="mt-2 w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-md transition-colors"
+            title="Sign out of StockSense"
           >
-            <LogOut className="w-3.5 h-3.5 text-slate-400" />
-            <span>Logout (Local Dev)</span>
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
           </button>
         </div>
       </aside>

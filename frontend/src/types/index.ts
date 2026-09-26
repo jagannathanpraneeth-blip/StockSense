@@ -1,3 +1,12 @@
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: 'ADMIN' | 'INVENTORY_MANAGER' | 'WAREHOUSE_STAFF';
+  isActive: boolean;
+  createdAt?: string;
+}
+
 export interface Category {
   id: string;
   name: string;
@@ -68,6 +77,62 @@ export interface Product {
   stockBalances?: StockBalance[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface OperationLine {
+  id: string;
+  operationId: string;
+  productId: string;
+  product?: Product;
+  demandQty: number;
+  doneQty: number;
+  destLocationId?: string | null;
+  sourceLocationId?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Operation {
+  id: string;
+  reference: string;
+  type: 'RECEIPT' | 'DELIVERY' | 'INTERNAL_TRANSFER' | 'ADJUSTMENT';
+  status: 'DRAFT' | 'WAITING' | 'READY' | 'DONE' | 'CANCELED';
+  version: number;
+  partner?: string | null;
+  expectedDate?: string | null;
+  destLocationId?: string | null;
+  destLocation?: Location | null;
+  sourceLocationId?: string | null;
+  sourceLocation?: Location | null;
+  notes?: string | null;
+  createdById?: string | null;
+  createdBy?: User | null;
+  validatedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lines?: OperationLine[];
+  _count?: {
+    lines: number;
+  };
+}
+
+export interface StockLedger {
+  id: string;
+  operationId?: string | null;
+  operation?: Operation | null;
+  productId: string;
+  product?: Product;
+  locationId: string;
+  location?: Location;
+  deltaQty: number;
+  balanceAfter: number;
+  referenceType: string;
+  referenceDoc: string;
+  actorId?: string | null;
+  actor?: User | null;
+  notes?: string | null;
+  createdAt: string;
 }
 
 export interface ApiResponse<T> {

@@ -75,7 +75,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobile, pageTitle }) => 
         <Badge variant="purple" size="md">
           <span className="flex items-center gap-1">
             <Activity className="w-3 h-3 text-purple-600" />
-            Stage 1 Build
+            Stage 2 Verified
           </span>
         </Badge>
       </div>

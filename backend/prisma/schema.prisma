@@ -3,6 +3,8 @@
 // Quantity Precision Policy:
 // All quantities are stored as Float with a 4-decimal place precision standard (0.0001).
 // Business logic in src/utils/quantity.ts enforces rounding and validation to eliminate floating-point drift.
+// Stored quantities use scaled-integer arithmetic via quantity helpers to avoid floating-point drift.
+// The Float Prisma type is used (SQLite stores as IEEE 754 REAL); all reads go through roundQuantity() before use.
 
 generator client {
   provider = "prisma-client-js"
@@ -23,8 +25,23 @@ model User {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  operations   Operation[]   @relation("UserOperations")
+  operations    Operation[]   @relation("UserOperations")
   ledgerEntries StockLedger[] @relation("UserLedger")
+  otpRequests   OtpRequest[]
+}
+
+// OTP Password Reset Model
+// otpHash is a bcrypt hash of the 6-digit OTP - never stored in plain text.
+// Single-use enforced: usedAt set on first verification.
+model OtpRequest {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  otpHash      String    // bcrypt hash of the OTP - never stored plain
+  expiresAt    DateTime
+  attempts     Int       @default(0)
+  usedAt       DateTime? // null = unused; non-null = consumed
+  createdAt    DateTime  @default(now())
 }
 
 model Warehouse {
@@ -105,7 +122,9 @@ model Operation {
   reference        String          @unique // e.g. WH/IN/0001
   type             String          // RECEIPT, DELIVERY, INTERNAL_TRANSFER, ADJUSTMENT
   status           String          @default("DRAFT") // DRAFT, WAITING, READY, DONE, CANCELED
+  version          Int             @default(0) // Optimistic lock version - incremented on each update
   partner          String?         // Supplier for Receipt, Customer for Delivery
+  expectedDate     DateTime?       // Expected arrival/departure date
   sourceLocationId String?
   sourceLocation   Location?       @relation("SourceLocationOperations", fields: [sourceLocationId], references: [id], onDelete: Restrict)
   destLocationId   String?
